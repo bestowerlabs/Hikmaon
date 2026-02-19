@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hikmaon Dashboard</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; background: #f7f8fc; color: #111; }
+      h1 { margin-bottom: 0.25rem; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+      .card { background: #fff; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+      input, textarea, select, button { width: 100%; margin-top: 0.5rem; margin-bottom: 0.75rem; padding: 0.5rem; }
+      button { cursor: pointer; background: #2639d8; color: #fff; border: none; border-radius: 6px; }
+      pre { background: #0f172a; color: #d6e2ff; padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Hikmaon Control Dashboard</h1>
+    <p>Registration → Analysis → Verification → Evidence → Notification</p>
+
+    <div class="grid">
+      <div class="card">
+        <h3>1) Register Media</h3>
+        <input id="ownerId" placeholder="Owner ID" value="owner-01" />
+        <input id="ownerKey" placeholder="Owner Public Key" value="pubkey_owner_123456" />
+        <input id="filename" placeholder="Filename" value="original.png" />
+        <select id="mediaType"><option>image</option><option>video</option><option>audio</option></select>
+        <textarea id="content" rows="4">sample-media-content</textarea>
+        <button onclick="registerMedia()">Register</button>
+      </div>
+
+      <div class="card">
+        <h3>2) Analyze Suspicious Content</h3>
+        <input id="susFilename" placeholder="Suspicious filename" value="suspicious.png" />
+        <textarea id="susContent" rows="4">sample-media-content</textarea>
+        <button onclick="analyzeMedia()">Analyze</button>
+      </div>
+
+      <div class="card">
+        <h3>3) Verify + Evidence + Notify</h3>
+        <button onclick="verifyOwnership()">Verify Ownership</button>
+        <button onclick="generateEvidence()">Generate Evidence</button>
+        <button onclick="sendNotification()">Send Dashboard Alert</button>
+      </div>
+    </div>
+
+    <h3>Output</h3>
+    <pre id="output">Run steps from left to right.</pre>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
