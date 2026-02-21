@@ -1,68 +1,83 @@
 const API = 'http://localhost:8000';
-let state = { suspiciousMediaId: null };
 
 function b64(text) {
   return btoa(unescape(encodeURIComponent(text)));
 }
 
-function out(data) {
+function output(data) {
   document.getElementById('output').textContent = JSON.stringify(data, null, 2);
 }
 
-async function registerMedia() {
-  const payload = {
-    owner_id: document.getElementById('ownerId').value,
-    owner_public_key: document.getElementById('ownerKey').value,
-    media_type: document.getElementById('mediaType').value,
-    filename: document.getElementById('filename').value,
-    content_b64: b64(document.getElementById('content').value),
-    metadata: { source: 'dashboard' },
-  };
-
-  const res = await fetch(`${API}/api/registrations`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-  });
-  out(await res.json());
-}
-
-async function analyzeMedia() {
-  const payload = {
-    media_type: document.getElementById('mediaType').value,
-    filename: document.getElementById('susFilename').value,
-    content_b64: b64(document.getElementById('susContent').value),
-  };
-
-  const res = await fetch(`${API}/api/analyze`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  state.suspiciousMediaId = data.suspicious_media_id;
-  out(data);
-}
-
-async function verifyOwnership() {
-  const res = await fetch(`${API}/api/verify`, {
-    method: 'POST',
+async function request(path, payload, method = 'POST') {
+  const response = await fetch(`${API}${path}`, {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ suspicious_media_id: state.suspiciousMediaId }),
+    body: payload ? JSON.stringify(payload) : undefined,
   });
-  out(await res.json());
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(JSON.stringify(data));
+  }
+  return data;
 }
 
-async function generateEvidence() {
-  const res = await fetch(`${API}/api/evidence/${state.suspiciousMediaId}`, { method: 'POST' });
-  out(await res.json());
+async function connectAccount() {
+  try {
+    const data = await request('/api/connectors', {
+      owner_id: document.getElementById('ownerId').value,
+      owner_public_key: document.getElementById('ownerPub').value,
+      provider: document.getElementById('provider').value,
+      account_handle: document.getElementById('handle').value,
+    });
+    document.getElementById('connectorId').value = data.connector_id;
+    output({ stage: 'account_connected', ...data });
+  } catch (err) {
+    output({ error: err.message });
+  }
 }
 
-async function sendNotification() {
-  const res = await fetch(`${API}/api/notifications`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      channel: 'dashboard',
-      recipient: 'security-team',
-      message: `High-priority media alert for ${state.suspiciousMediaId}`,
-    }),
-  });
-  out(await res.json());
+async function loadConnectors() {
+  try {
+    const res = await fetch(`${API}/api/connectors`);
+    output(await res.json());
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function ingestEvent() {
+  try {
+    const data = await request('/api/connectors/ingest', {
+      connector_id: document.getElementById('connectorId').value,
+      media_type: document.getElementById('mediaType').value,
+      filename: document.getElementById('filename').value,
+      content_b64: b64(document.getElementById('mediaText').value),
+      source_url: document.getElementById('sourceUrl').value,
+    });
+    output({ stage: 'ingest_and_registration', ...data });
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function runDetectionCycle() {
+  try {
+    const data = await request('/api/realtime/detect', {
+      media_type: document.getElementById('mediaType').value,
+      filename: document.getElementById('susFile').value,
+      content_b64: b64(document.getElementById('susText').value),
+    });
+    output({ stage: 'incident_detection_cycle', ...data });
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function listIncidents() {
+  try {
+    const res = await fetch(`${API}/api/incidents`);
+    output(await res.json());
+  } catch (err) {
+    output({ error: err.message });
+  }
 }

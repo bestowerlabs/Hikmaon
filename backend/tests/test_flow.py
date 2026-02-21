@@ -14,50 +14,53 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode("utf-8")
 
 
-def test_registration_analysis_verify_evidence_flow() -> None:
-    content = b"sample-media-content"
+def test_connector_to_incident_automation_flow() -> None:
+    media = b"owner-media-content"
 
-    reg = client.post(
-        "/api/registrations",
+    connected = client.post(
+        "/api/connectors",
         json={
             "owner_id": "owner-01",
             "owner_public_key": "pubkey_owner_123456",
+            "provider": "instagram",
+            "account_handle": "@owner",
+        },
+    )
+    assert connected.status_code == 200
+    connector_id = connected.json()["connector_id"]
+
+    ingest = client.post(
+        "/api/connectors/ingest",
+        json={
+            "connector_id": connector_id,
             "media_type": "image",
             "filename": "original.png",
-            "content_b64": _b64(content),
-            "metadata": {"title": "Original"},
+            "content_b64": _b64(media),
+            "source_url": "https://instagram.com/p/x",
         },
     )
-    assert reg.status_code == 200
-    reg_data = reg.json()
-    assert reg_data["blockchain_txid"].startswith("hkml_")
+    assert ingest.status_code == 200
+    assert ingest.json()["event"] == "connector_ingest_registered"
 
-    idx = client.post(
+    indexed = client.post(
         "/api/monitor/index",
-        json={"media_url": "https://example.com/a.png", "content_b64": _b64(content)},
+        json={"media_url": "https://malicious.site/fake.png", "content_b64": _b64(media)},
     )
-    assert idx.status_code == 200
+    assert indexed.status_code == 200
 
-    analysis = client.post(
-        "/api/analyze",
+    detected = client.post(
+        "/api/realtime/detect",
         json={
             "media_type": "image",
-            "filename": "suspicious.png",
-            "content_b64": _b64(content),
+            "filename": "fake.png",
+            "content_b64": _b64(media),
         },
     )
-    assert analysis.status_code == 200
-    analysis_data = analysis.json()
-    assert analysis_data["similarity_score"] > 0.99
+    assert detected.status_code == 200
+    data = detected.json()
+    assert data["event"] == "incident_created"
+    assert data["verification"]["status"] == "verified"
 
-    verify = client.post(
-        "/api/verify",
-        json={"suspicious_media_id": analysis_data["suspicious_media_id"]},
-    )
-    assert verify.status_code == 200
-    assert verify.json()["status"] == "verified"
-
-    evidence = client.post(f"/api/evidence/{analysis_data['suspicious_media_id']}")
-    assert evidence.status_code == 200
-    evidence_data = evidence.json()
-    assert evidence_data["registered_txid"] == reg_data["blockchain_txid"]
+    incidents = client.get("/api/incidents")
+    assert incidents.status_code == 200
+    assert len(incidents.json()) >= 1

@@ -6,10 +6,24 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+MediaType = Literal["image", "video", "audio"]
+ProviderType = Literal[
+    "x",
+    "instagram",
+    "facebook",
+    "youtube",
+    "tiktok",
+    "linkedin",
+    "google_drive",
+    "dropbox",
+    "onedrive",
+]
+
+
 class RegistrationCreate(BaseModel):
     owner_id: str = Field(min_length=3)
     owner_public_key: str = Field(min_length=8)
-    media_type: Literal["image", "video", "audio"]
+    media_type: MediaType
     filename: str
     content_b64: str = Field(description="Base64-encoded media bytes")
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -19,7 +33,7 @@ class RegistrationRecord(BaseModel):
     media_id: str
     owner_id: str
     owner_public_key: str
-    media_type: str
+    media_type: MediaType
     filename: str
     content_hash: str
     fingerprint_commitment: str
@@ -30,7 +44,7 @@ class RegistrationRecord(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    media_type: Literal["image", "video", "audio"]
+    media_type: MediaType
     filename: str
     content_b64: str
 
@@ -58,3 +72,42 @@ class EvidenceReport(BaseModel):
     matched_urls: list[str]
     analysis_metadata: dict[str, Any]
     model_versions: dict[str, str]
+
+
+class ConnectorAccountCreate(BaseModel):
+    owner_id: str
+    owner_public_key: str
+    provider: ProviderType
+    account_handle: str
+
+
+class ConnectorAccount(BaseModel):
+    connector_id: str
+    owner_id: str
+    owner_public_key: str
+    provider: ProviderType
+    account_handle: str
+    token_ciphertext: str
+    created_at: datetime
+
+
+class ConnectorIngestEvent(BaseModel):
+    connector_id: str
+    media_type: MediaType
+    filename: str
+    content_b64: str
+    source_url: str
+
+
+class IncidentRecord(BaseModel):
+    incident_id: str
+    suspicious_media_id: str
+    matched_media_id: str
+    similarity_score: float
+    deepfake_probability: float
+    confidence: float
+    blockchain_verified: bool
+    matched_urls: list[str]
+    evidence_report_id: str
+    notified_owner: str
+    created_at: datetime

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.models import EvidenceReport, NotificationRecord, RegistrationRecord
+from app.models import ConnectorAccount, EvidenceReport, IncidentRecord, NotificationRecord, RegistrationRecord
 
 
 @dataclass
@@ -12,3 +12,5 @@ class InMemoryStore:
     notifications: list[NotificationRecord] = field(default_factory=list)
     evidence_reports: dict[str, EvidenceReport] = field(default_factory=dict)
     crawler_index: dict[str, list[dict]] = field(default_factory=dict)
+    connectors: dict[str, ConnectorAccount] = field(default_factory=dict)
+    incidents: dict[str, IncidentRecord] = field(default_factory=dict)

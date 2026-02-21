@@ -6,16 +6,18 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from app.models import AnalyzeRequest, RegistrationCreate, VerifyRequest
+from app.models import AnalyzeRequest, ConnectorAccountCreate, ConnectorIngestEvent, RegistrationCreate, VerifyRequest
 from app.services.ai import AIService
+from app.services.connectors import ConnectorService
 from app.services.evidence import EvidenceService
 from app.services.monitoring import MonitoringService
 from app.services.notification import NotificationService
+from app.services.pipeline import AutomationPipelineService
 from app.services.registration import RegistrationService
 from app.services.verification import VerificationService
 from app.storage import InMemoryStore
 
-app = FastAPI(title="Hikmaon API", version="0.1.0")
+app = FastAPI(title="Hikmaon API", version="0.2.0")
 store = InMemoryStore()
 
 registration_service = RegistrationService(store)
@@ -24,6 +26,15 @@ verification_service = VerificationService(store)
 monitoring_service = MonitoringService(store)
 evidence_service = EvidenceService(store)
 notification_service = NotificationService(store)
+connector_service = ConnectorService(store)
+automation_pipeline = AutomationPipelineService(
+    store=store,
+    registration_service=registration_service,
+    ai_service=ai_service,
+    verification_service=verification_service,
+    evidence_service=evidence_service,
+    notification_service=notification_service,
+)
 
 analysis_cache: dict[str, object] = {}
 
@@ -50,6 +61,32 @@ def register(payload: RegistrationCreate) -> dict:
     return record.model_dump()
 
 
+@app.post("/api/connectors")
+def connect_account(payload: ConnectorAccountCreate) -> dict:
+    return connector_service.connect_account(payload).model_dump()
+
+
+@app.get("/api/connectors")
+def list_connectors() -> list[dict]:
+    return [connector.model_dump() for connector in connector_service.list_accounts()]
+
+
+@app.delete("/api/connectors/{connector_id}")
+def disconnect_connector(connector_id: str) -> dict:
+    ok = connector_service.disconnect_account(connector_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    return {"disconnected": True, "connector_id": connector_id}
+
+
+@app.post("/api/connectors/ingest")
+def ingest_connector_event(payload: ConnectorIngestEvent) -> dict:
+    try:
+        return automation_pipeline.ingest_from_connector(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.post("/api/monitor/index")
 def index_media(payload: IndexRequest) -> dict:
     media_bytes = base64.b64decode(payload.content_b64.encode("utf-8"))
@@ -74,6 +111,16 @@ def analyze(payload: AnalyzeRequest) -> dict:
         "matched_urls": result.matched_urls,
         "model_versions": result.model_versions,
     }
+
+
+@app.post("/api/realtime/detect")
+def run_realtime_detection(payload: AnalyzeRequest) -> dict:
+    return automation_pipeline.run_detection_cycle(payload.media_type, payload.filename, payload.content_b64)
+
+
+@app.get("/api/incidents")
+def list_incidents() -> list[dict]:
+    return [incident.model_dump() for incident in store.incidents.values()]
 
 
 @app.post("/api/verify")

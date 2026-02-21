@@ -1,70 +1,70 @@
-# Hikmaon Development Stages (Implemented in this iteration)
+# Hikmaon Development Stages (Current Build)
 
-## Stage 1 — Foundation + Registration + Blockchain anchoring
+## Stage 1 — Registration + Hikmalayer anchoring
 
-### What was built
-- FastAPI backend scaffold with modular service boundaries.
-- `RegistrationService` to accept media payloads, compute SHA-256, build fingerprint commitment, generate deterministic embeddings, and submit a simulated Hikmalayer `MEDIA_REGISTRATION` transaction.
-- In-memory storage contract for registrations and chain records.
+### What was done
+- Implemented automated registration pipeline for direct API and connector-ingested uploads.
+- Every ingested media item now receives:
+  - SHA-256 content hash
+  - fingerprint commitment
+  - deterministic embedding vector
+  - Hikmalayer `MEDIA_REGISTRATION` transaction payload
 
-### Why it was built this way
-- This stage follows the mandated order: registration and anchoring first.
-- Hash/fingerprint are generated before blockchain submission, preserving patent consistency.
-- Raw media is not persisted on-chain.
+### Why
+- Preserves patent requirement: hash/fingerprint before on-chain proof.
+- Keeps raw media off-chain while storing verifiable digital representation.
 
-### What is next
-- Replace simulated chain write with real Hikmalayer RPC client.
-- Add Postgres + object storage persistence.
+### What next
+- Replace simulated chain write with live Hikmalayer RPC client and retry queues.
 
-## Stage 2 — AI Similarity + Dashboard integration
+## Stage 2 — AI and detection fusion
 
-### What was built
-- `AIService` containing:
-  - Embedding engine
-  - Similarity engine (cosine similarity against stored vectors)
-  - Deepfake probability estimator (placeholder classifier)
-  - Decision fusion confidence scoring
-- Frontend dashboard (`frontend/index.html` + `frontend/app.js`) supporting register/analyze/verify/evidence/notify operational flow.
+### What was done
+- Similarity search (cosine over stored embeddings).
+- Deepfake probability estimation placeholder.
+- Decision fusion score combining similarity, deepfake probability, and blockchain status.
 
-### Why it was built this way
-- Keeps AI computation off-chain and model outputs auditable.
-- Provides immediate human-in-the-loop control via UI for operations teams.
+### Why
+- Enables AI-assisted misuse detection while preserving blockchain-backed legal proof.
 
-### What is next
-- Replace placeholder deepfake estimator with production model serving.
-- Add vector database (FAISS/pgvector/etc.) and ANN indexing.
+### What next
+- Deploy production model-serving stack for deepfake and multi-modal embeddings.
 
-## Stage 3 — Verification + Evidence + Notification
+## Stage 3 — Verification, evidence, and alerts
 
-### What was built
-- `VerificationService` to prove ownership from blockchain records.
-- `EvidenceService` for structured legal-grade report JSON generation.
-- `NotificationService` for logging and dispatch abstraction across channels.
+### What was done
+- Verification checks ownership/hash/timestamp against chain payload.
+- Incident evidence report generation.
+- Owner notification event emission.
 
-### Why it was built this way
-- Verification and evidence are the legal backbone of Hikmaon.
-- Notification closes the loop for automated misuse response.
+### Why
+- This creates legally traceable incident handling from detection to notification.
 
-### What is next
-- Add signed PDF report export.
-- Add enterprise webhook retry policies and delivery telemetry.
+### What next
+- Signed PDF evidence packaging and enterprise callback reliability policies.
 
-## Stage 4 — Internet Discovery baseline
+## Stage 4 — Internet indexing and incident automation
 
-### What was built
-- `MonitoringService` with a public media indexing primitive storing URL + first-seen timestamp and lightweight fingerprint map.
+### What was done
+- Public media indexing endpoint (URL + fingerprint + first-seen timestamp).
+- Realtime detection cycle endpoint that performs AI analysis, verification, evidence generation, and owner alerting in one pipeline.
 
-### Why it was built this way
-- Enables monitoring records without forcing heavy model inference over all web media.
+### Why
+- Delivers near-realtime misuse response flow as required in system goals.
 
-### What is next
-- Introduce lawful crawler orchestration with robots.txt support and domain policy controls.
-- Trigger deep AI only on thresholded candidates.
+### What next
+- robots.txt-compliant crawler scheduler and selective deep-AI execution policy.
 
 ## Stage 5 — Optional social/cloud integration
 
-### What was built
-- Not implemented yet in code (kept intentionally optional per architecture requirements).
+### What was done
+- Implemented connector APIs for social/cloud account linking and simulated realtime upload ingestion.
+- Supported providers in scaffold:
+  - X, Instagram, Facebook, YouTube, TikTok, LinkedIn
+  - Google Drive, Dropbox, OneDrive
 
-### What is next
-- Add OAuth account connectors and encrypted token vault.
+### Why
+- Matches requirement that user uploads across accounts/storage can be auto-registered and anchored.
+
+### What next
+- Provider-by-provider OAuth + webhook integration with encrypted token vault and key rotation.
