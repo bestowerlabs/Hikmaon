@@ -30,7 +30,7 @@ It combines:
 - `frontend/` Patent-aligned command center UI for connectors and realtime detection flow.
 - `docs/architecture.md` Full technical target architecture.
 - `docs/development_stages.md` Stage-by-stage progress and next milestones.
-- `docs/WHITEPAPER.md` Hikmaon whitepaper.
+- `docs/Hikmaon Whitepaper v1.1.pdf` Hikmaon whitepaper.
 
 ## Run backend
 
