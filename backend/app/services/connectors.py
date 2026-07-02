@@ -11,14 +11,18 @@ from app.storage import InMemoryStore
 class ConnectorService:
     """Optional social/cloud ingestion layer.
 
-    In production this service should use provider OAuth and official APIs/webhooks.
+    Production integration point: each provider gets an OAuth flow (Meta
+    Graph API, Google Drive push notifications, Dropbox webhooks, ...) with
+    KMS-encrypted token storage. Until those are configured, connections are
+    recorded locally and ingest events are accepted via the ingest endpoint.
     """
 
     def __init__(self, store: InMemoryStore) -> None:
         self.store = store
 
     def connect_account(self, payload: ConnectorAccountCreate) -> ConnectorAccount:
-        # Placeholder encryption representation; replace with KMS-backed encryption.
+        # Placeholder token representation; replace with KMS-backed encryption
+        # of real OAuth tokens once provider apps are registered.
         token_ciphertext = base64.b64encode(f"token::{payload.provider}::{payload.account_handle}".encode()).decode()
         account = ConnectorAccount(
             connector_id=f"conn_{uuid.uuid4().hex[:12]}",
@@ -30,10 +34,14 @@ class ConnectorService:
             created_at=datetime.now(tz=timezone.utc),
         )
         self.store.connectors[account.connector_id] = account
+        self.store.persist()
         return account
 
     def disconnect_account(self, connector_id: str) -> bool:
-        return bool(self.store.connectors.pop(connector_id, None))
+        removed = bool(self.store.connectors.pop(connector_id, None))
+        if removed:
+            self.store.persist()
+        return removed
 
     def list_accounts(self) -> list[ConnectorAccount]:
         return list(self.store.connectors.values())

@@ -3,69 +3,132 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hikmaon Patent-Aligned Command Center</title>
+    <title>Hikmaon — Digital Authenticity Command Center | Bestower Labs</title>
     <style>
-      body { font-family: Inter, Arial, sans-serif; margin: 1.5rem; background: #f4f7ff; color: #111827; }
-      h1 { margin: 0 0 0.4rem 0; }
-      .sub { margin: 0 0 1rem 0; color: #475569; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }
-      .card { background: #fff; border-radius: 12px; padding: 1rem; box-shadow: 0 3px 12px rgba(2, 6, 23, 0.08); }
-      .pill { display:inline-block; padding:0.2rem 0.5rem; border-radius:999px; font-size:0.75rem; background:#e2e8f0; margin-bottom:0.4rem; }
-      input, textarea, select, button { width: 100%; margin-top: 0.4rem; margin-bottom: 0.6rem; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; }
-      button { border: none; background: #1d4ed8; color: #fff; cursor: pointer; }
+      :root {
+        --ink: #0b1220; --panel: #ffffff; --line: #e2e8f0; --muted: #5b6b83;
+        --brand: #1d4ed8; --brand-2: #7c3aed; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+      }
+      * { box-sizing: border-box; }
+      body { font-family: Inter, "Segoe UI", Arial, sans-serif; margin: 0; background: #eef2fb; color: var(--ink); }
+      header { background: linear-gradient(120deg, #0b1220 0%, #1e1b4b 60%, #312e81 100%); color: #fff; padding: 1.6rem 2rem 1.4rem; }
+      header .brand { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+      header h1 { margin: 0; font-size: 1.7rem; letter-spacing: 0.02em; }
+      header .by { color: #a5b4fc; font-size: 0.95rem; font-weight: 600; }
+      header p { margin: 0.5rem 0 0; color: #c7d2fe; max-width: 70rem; font-size: 0.92rem; }
+      .statusbar { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.9rem; }
+      .chip { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); color: #e0e7ff;
+              border-radius: 999px; padding: 0.25rem 0.7rem; font-size: 0.78rem; }
+      main { padding: 1.4rem 2rem 2rem; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 1rem; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem;
+              box-shadow: 0 4px 16px rgba(2, 6, 23, 0.06); }
+      .pill { display: inline-block; padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.72rem;
+              background: #e0e7ff; color: #3730a3; font-weight: 600; margin-bottom: 0.45rem; }
+      h3 { margin: 0.1rem 0 0.6rem; font-size: 1.02rem; }
+      input, textarea, select, button { width: 100%; margin: 0.25rem 0 0.55rem; padding: 0.55rem 0.6rem;
+              border-radius: 9px; border: 1px solid var(--line); font-size: 0.9rem; background: #fff; }
+      button { border: none; background: var(--brand); color: #fff; cursor: pointer; font-weight: 600; }
+      button:hover { filter: brightness(1.08); }
       button.secondary { background: #334155; }
-      pre { background: #0f172a; color: #dbeafe; border-radius: 10px; padding: 0.8rem; max-height: 360px; overflow: auto; }
+      button.allow { background: var(--ok); }
+      button.remove { background: var(--bad); }
+      pre { background: #0b1220; color: #dbeafe; border-radius: 12px; padding: 0.9rem; max-height: 340px;
+            overflow: auto; font-size: 0.8rem; }
+      .incident { border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem; margin-bottom: 0.7rem; }
+      .incident .row { display: flex; gap: 0.5rem; }
+      .pct { font-size: 1.5rem; font-weight: 800; background: linear-gradient(90deg, var(--brand), var(--brand-2));
+             -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .status { font-size: 0.74rem; padding: 0.16rem 0.55rem; border-radius: 999px; background: #fef3c7; color: #92400e; font-weight: 600; }
+      .status.closed, .status.allowed_by_owner, .status.removed { background: #dcfce7; color: #166534; }
+      .status.removal_requested, .status.rejected { background: #fee2e2; color: #991b1b; }
+      .status.reported { background: #e0e7ff; color: #3730a3; }
+      .muted { color: var(--muted); font-size: 0.82rem; }
+      footer { padding: 0 2rem 1.5rem; color: var(--muted); font-size: 0.78rem; }
     </style>
   </head>
   <body>
-    <h1>Hikmaon Command Center</h1>
-    <p class="sub">Automatic social/cloud ingest → hash/fingerprint/embedding → Hikmalayer anchoring → AI misuse detection → blockchain verification → owner alert + evidence.</p>
+    <header>
+      <div class="brand">
+        <h1>HIKMAON</h1>
+        <span class="by">by Bestower Labs</span>
+      </div>
+      <p>Blockchain-anchored digital authenticity &amp; deepfake misuse defense — connect accounts, anchor ownership on Hikmalayer with a signed certificate, detect edited copies with percentage match + manipulation forensics, and enforce with consent-driven takedowns.</p>
+      <div class="statusbar">
+        <span class="chip" id="chipChain">chain: …</span>
+        <span class="chip" id="chipModel">neural model: …</span>
+        <span class="chip" id="chipProviders">integrations: …</span>
+      </div>
+    </header>
 
+    <main>
     <div class="grid">
       <section class="card">
-        <div class="pill">Optional Module: Social + Cloud Accounts</div>
-        <h3>1) Connect External Accounts</h3>
+        <div class="pill">Step 1 — Social + Cloud Accounts</div>
+        <h3>Connect External Accounts</h3>
         <input id="ownerId" placeholder="Owner ID" value="owner-01" />
         <input id="ownerPub" placeholder="Owner Public Key" value="pubkey_owner_123456" />
         <select id="provider">
-          <option value="x">X</option>
           <option value="instagram">Instagram</option>
           <option value="facebook">Facebook</option>
+          <option value="snapchat">Snapchat</option>
+          <option value="x">X</option>
           <option value="youtube">YouTube</option>
           <option value="tiktok">TikTok</option>
           <option value="linkedin">LinkedIn</option>
+          <option value="reddit">Reddit</option>
           <option value="google_drive">Google Drive</option>
           <option value="dropbox">Dropbox</option>
           <option value="onedrive">OneDrive</option>
         </select>
         <input id="handle" placeholder="@account or storage handle" value="@owner_profile" />
-        <button onclick="connectAccount()">Connect Account</button>
+        <button onclick="oauthStart()">Connect via OAuth</button>
+        <button class="secondary" onclick="connectAccount()">Dev Connect (no OAuth)</button>
         <button class="secondary" onclick="loadConnectors()">Refresh Connections</button>
       </section>
 
       <section class="card">
-        <div class="pill">Realtime Ingest Trigger</div>
-        <h3>2) Simulate Upload Event from Connected Source</h3>
-        <input id="connectorId" placeholder="Connector ID (from output)" />
+        <div class="pill">Step 2 — Register &amp; Anchor</div>
+        <h3>Register Original Media</h3>
+        <input id="connectorId" placeholder="Connector ID (optional, from Step 1)" />
         <select id="mediaType"><option>image</option><option>video</option><option>audio</option></select>
-        <input id="filename" placeholder="Filename" value="owner-upload.png" />
-        <textarea id="mediaText" rows="3">original-owner-media-content</textarea>
+        <input id="registerFile" type="file" />
         <input id="sourceUrl" placeholder="Source URL" value="https://instagram.com/p/abc123" />
-        <button onclick="ingestEvent()">Ingest and Anchor on Hikmalayer</button>
+        <button onclick="registerMedia()">Register + Anchor on Hikmalayer</button>
+        <button class="secondary" onclick="showCertificate()">Show Ownership Certificate</button>
+        <button class="secondary" onclick="syncConnector()">Sync Recent Uploads (API)</button>
+        <p class="muted">Every registration gets an Ed25519-signed Certificate of Ownership tied to its Hikmalayer transaction.</p>
       </section>
 
       <section class="card">
-        <div class="pill">Internet Misuse Detection</div>
-        <h3>3) Run Realtime Misuse Scan Cycle</h3>
-        <input id="susFile" placeholder="Suspicious filename" value="misused-content.png" />
-        <textarea id="susText" rows="3">original-owner-media-content</textarea>
-        <button onclick="runDetectionCycle()">Detect + Verify + Notify + Evidence</button>
-        <button class="secondary" onclick="listIncidents()">List Incidents</button>
+        <div class="pill">Step 3 — Detection</div>
+        <h3>Scan Suspicious Media</h3>
+        <input id="suspiciousFile" type="file" />
+        <button onclick="runDetectionCycle()">Detect: % Match + Forensics + Verify + Alert</button>
+        <button class="secondary" onclick="analyzeOnly()">Analyze Only (no incident)</button>
+        <button class="secondary" onclick="indexPublicCopy()">Index as Public URL Sighting</button>
+        <input id="publicUrl" placeholder="Public URL where media was seen" value="https://example.com/repost.jpg" />
       </section>
     </div>
 
-    <h3>Output</h3>
+    <div class="grid" style="margin-top:1rem;">
+      <section class="card">
+        <h3>Incidents — Owner Consent</h3>
+        <button class="secondary" onclick="listIncidents()">Refresh Incidents</button>
+        <div id="incidents"></div>
+      </section>
+      <section class="card">
+        <h3>Takedown Cases</h3>
+        <button class="secondary" onclick="listTakedowns()">Refresh Cases</button>
+        <div id="takedowns"></div>
+      </section>
+    </div>
+
+    <h3 style="margin-top:1.2rem;">Output</h3>
     <pre id="output">Ready.</pre>
+    </main>
+
+    <footer>Hikmaon © Bestower Labs — AI-based deepfake detection and prevention using a hybrid blockchain network (Hikmalayer).</footer>
 
     <script src="./app.js"></script>
   </body>

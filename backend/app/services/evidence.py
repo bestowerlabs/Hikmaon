@@ -3,8 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from app.models import EvidenceReport
-from app.services.ai import AnalysisResult
+from app.models import AnalysisReport, EvidenceReport
 from app.storage import InMemoryStore
 
 
@@ -12,24 +11,30 @@ class EvidenceService:
     def __init__(self, store: InMemoryStore) -> None:
         self.store = store
 
-    def generate_report(self, result: AnalysisResult) -> EvidenceReport:
-        if not result.matched_registration:
-            raise ValueError("Cannot generate evidence without matched registration")
+    def generate_report(self, analysis: AnalysisReport, verification: dict | None = None) -> EvidenceReport:
+        if not analysis.match.matched_media_id:
+            raise ValueError("Cannot generate evidence without a matched registration")
 
+        registration = self.store.registrations[analysis.match.matched_media_id]
         report = EvidenceReport(
             report_id=f"evidence_{uuid.uuid4().hex[:12]}",
-            suspicious_media_id=result.suspicious_media_id,
-            registered_txid=result.matched_registration.blockchain_txid,
-            owner_public_key=result.matched_registration.owner_public_key,
+            suspicious_media_id=analysis.suspicious_media_id,
+            registered_txid=registration.blockchain_txid,
+            owner_public_key=registration.owner_public_key,
             timestamp=datetime.now(tz=timezone.utc),
-            similarity_score=result.similarity_score,
-            deepfake_probability=result.deepfake_probability,
-            matched_urls=result.matched_urls,
+            match_percentage=analysis.match.match_percentage,
+            manipulation_risk_score=float(analysis.manipulation.get("risk_score", 0.0)),
+            manipulation_verdict=str(analysis.manipulation.get("verdict", "not_analyzable")),
+            matched_urls=analysis.matched_urls,
             analysis_metadata={
-                "confidence": result.confidence,
-                "blockchain_verified": result.blockchain_verified,
+                "match_outcome": analysis.match.outcome,
+                "component_scores": analysis.match.component_scores,
+                "manipulation_signals": analysis.manipulation.get("signals", []),
+                "chain_verification": verification or {},
+                "certificate_id": registration.certificate_id,
             },
-            model_versions=result.model_versions,
+            model_versions=analysis.model_versions,
         )
         self.store.evidence_reports[report.report_id] = report
+        self.store.persist()
         return report
