@@ -53,6 +53,7 @@ These are bugs even at prototype level:
 - **Audio:** chromaprint-style fingerprints or MFCC landmarks.
 - **Embeddings:** replace the seeded RNG with real encoders — CLIP/ViT for general imagery, a face-recognition embedding (e.g., ArcFace-class) for identity matching, wav2vec-style encoders for voice — served behind a model-serving layer (TorchServe/Triton/ONNX Runtime).
 - **Vector search:** FAISS/pgvector/Milvus ANN index instead of a linear scan over a dict, with a **calibrated similarity threshold** and a "no match" outcome.
+- **Percentage match:** expose the calibrated combination of perceptual-hash distance and embedding similarity as a 0–100% match score in incidents, alerts, and evidence reports — this is the owner-facing number the product promises, and it is what detects *edited/partially modified* copies, not just exact duplicates.
 
 ### 3.2 Real deepfake classifiers (Detection tier 2)
 
@@ -74,7 +75,7 @@ These are bugs even at prototype level:
 ### 3.4 Real infrastructure
 
 - **Persistence:** Postgres (users, registrations, incidents, notifications), object storage (media, evidence), vector DB (embeddings). Migrations, backups.
-- **Blockchain:** implement the actual Hikmalayer RPC client with retry queues and confirmation tracking — or, until Hikmalayer exists, anchor via an established mechanism (e.g., OpenTimestamps/public-chain commitment) so proofs survive process restarts and are externally verifiable.
+- **Blockchain:** Hikmalayer (the hybrid PoW+PoS chain) is developed as a **separate project — do not rebuild it here**. Hikmaon needs only the client side: an RPC client with retry queues and confirmation tracking that submits `MEDIA_REGISTRATION` transactions, stores the real `txid`, and queries the chain for verification. On top of that, issue a **Certificate of Ownership** per registration — a signed JSON + PDF containing content hash, owner public key, timestamp, and Hikmalayer `txid`, independently verifiable against the chain.
 - **Discovery:** a real robots.txt-compliant crawler with a scheduler, media extractor, and the documented "cheap fingerprint first, deep AI only on candidate hits" tiering — plus platform-specific ingestion (official APIs/webhooks) since most misuse happens on platforms, not the open web.
 - **Security:** OAuth2/JWT auth with proof-of-key-ownership at registration (sign a challenge with `owner_public_key` — otherwise ownership claims are meaningless), rate limiting, KMS-encrypted connector tokens with rotation, audit logs, signed evidence reports (the schema promises "signed digital report"; implement an actual signature).
 - **Engineering hygiene:** fix `requirements.txt` (add `httpx`), add CORS middleware, add negative-path tests (non-matching probe → `no_match`; manipulated copy → match), CI, and load-shedding for the analysis cache.
@@ -85,7 +86,7 @@ Detection tells you misuse happened; prevention reduces the harm or stops it rec
 
 1. **Provenance at creation — C2PA / Content Credentials.** Sign media at registration time with C2PA manifests and verify manifests on probes. This is the industry-standard "prevention" layer: consumers and platforms can verify authenticity *before* a fake spreads, and it composes naturally with Hikmalayer anchoring (anchor the manifest hash on-chain).
 2. **Robust invisible watermarking.** Embed an imperceptible, transformation-robust watermark in registered media so derivatives remain attributable even after re-encoding/cropping; check for watermark presence/absence during analysis as another fusion signal.
-3. **Takedown automation.** Turn evidence reports into action: templated DMCA notices, platform abuse-report API submissions (where available), case tracking per incident (open → reported → removed/rejected), and re-scan to confirm removal.
+3. **Owner-consent takedown flow.** Detection must end in a decision, not just an alert: notify the owner with the match evidence and a **percentage-match score** → owner chooses **Allow** (case closed, logged) or **Remove** → the system automatically files templated DMCA notices / platform abuse-report API submissions with the blockchain ownership certificate attached, tracks the case (open → reported → removed/rejected), and re-scans to confirm removal. Note: platforms make the final removal decision; Hikmaon automates the filing and maximizes success with chain-anchored evidence.
 4. **Real-time protection surface.** A public verification API/badge ("verify this media against Hikmaon") and webhook subscriptions so platforms can check content at upload time — moving from after-the-fact discovery to pre-publication screening.
 5. **Owner-side hygiene features.** Alerting SLAs, monitored identity profiles (faces/voices, with explicit consent), and periodic sweeps of high-risk platforms for registered identities, not just registered files.
 
@@ -98,7 +99,7 @@ Detection tells you misuse happened; prevention reduces the harm or stops it rec
 | P1 | Real perceptual hashing (PDQ/pHash) + real embeddings + vector DB | Minimum bar for detecting *transformed* copies |
 | P1 | Persistent storage (Postgres/object/vector) | Proofs and incidents must survive restarts |
 | P2 | Production deepfake classifier ensemble + calibration + evaluation harness | The actual "accurate detection" requirement |
-| P2 | Real Hikmalayer RPC (or interim external anchoring) | Externally verifiable proof |
+| P2 | Hikmalayer RPC client integration (chain itself is a separate, already-developed project) + Certificate of Ownership issuance | Externally verifiable proof owners can hold and present |
 | P3 | C2PA signing/verification + invisible watermarking | The core prevention layer |
 | P3 | Crawler + platform ingestion + takedown automation | Closes the detect → act loop |
 | P4 | Learned fusion, explainability maps, signed PDF evidence, human review queue | Legal-grade output quality |
