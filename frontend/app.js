@@ -2,6 +2,50 @@ const API = 'http://localhost:8000';
 
 let lastRegisteredMediaId = null;
 
+async function loadStatusBar() {
+  try {
+    const health = await (await fetch(`${API}/health`)).json();
+    document.getElementById('chipChain').textContent = `chain: ${health.chain_mode}`;
+    const model = await (await fetch(`${API}/api/model/status`)).json();
+    document.getElementById('chipModel').textContent = `neural model: ${model.neural_detector}`;
+    const providers = await (await fetch(`${API}/api/integrations/status`)).json();
+    const configured = providers.filter((p) => p.configured).length;
+    document.getElementById('chipProviders').textContent =
+      `integrations: ${configured}/${providers.length} configured`;
+  } catch (err) {
+    document.getElementById('chipChain').textContent = 'backend offline';
+  }
+}
+window.addEventListener('load', () => { loadStatusBar(); listIncidents(); listTakedowns(); });
+
+async function oauthStart() {
+  try {
+    const provider = document.getElementById('provider').value;
+    const params = new URLSearchParams({
+      owner_id: document.getElementById('ownerId').value,
+      owner_public_key: document.getElementById('ownerPub').value,
+    });
+    const res = await fetch(`${API}/api/connectors/oauth/${provider}/start?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    output({ stage: 'oauth_authorization_url', ...data });
+    window.open(data.authorization_url, '_blank');
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function syncConnector() {
+  try {
+    const connectorId = document.getElementById('connectorId').value.trim();
+    if (!connectorId) throw new Error('Enter a connector ID first');
+    const data = await request(`/api/connectors/${connectorId}/sync`, null);
+    output({ stage: 'media_sync', ...data });
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
 function output(data) {
   document.getElementById('output').textContent = JSON.stringify(data, null, 2);
 }

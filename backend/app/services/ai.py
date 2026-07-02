@@ -18,6 +18,7 @@ import os
 
 from app.forensics import FORENSICS_VERSION, analyze_image_bytes
 from app.models import AnalysisReport, MatchResult, OwnershipResult
+from app.services.model_serving import DeepfakeModelServer
 from app.perceptual import (
     EMBEDDING_VERSION,
     PHASH_VERSION,
@@ -35,8 +36,9 @@ DEFAULT_REVIEW_THRESHOLD = 35.0
 
 
 class AIService:
-    def __init__(self, store: InMemoryStore) -> None:
+    def __init__(self, store: InMemoryStore, model_server: DeepfakeModelServer | None = None) -> None:
         self.store = store
+        self.model_server = model_server or DeepfakeModelServer()
         self.match_threshold = float(os.environ.get("HIKMAON_MATCH_THRESHOLD", DEFAULT_MATCH_THRESHOLD))
         self.review_threshold = float(os.environ.get("HIKMAON_REVIEW_THRESHOLD", DEFAULT_REVIEW_THRESHOLD))
 
@@ -45,7 +47,8 @@ class AIService:
         probe = fingerprint_media(raw_bytes)
 
         match = self._find_best_match(probe)
-        manipulation = analyze_image_bytes(raw_bytes).to_dict()
+        neural_probability = self.model_server.predict_probability(raw_bytes)
+        manipulation = analyze_image_bytes(raw_bytes, neural_probability=neural_probability).to_dict()
         ownership = self._ownership(match)
         matched_urls = self._matched_urls(probe, match)
 
@@ -59,6 +62,7 @@ class AIService:
                 "perceptual_hash": PHASH_VERSION,
                 "embedding": EMBEDDING_VERSION,
                 "forensics": FORENSICS_VERSION,
+                "neural_detector": "hikmaonnet-v1" if neural_probability is not None else "not_deployed",
             },
         )
 

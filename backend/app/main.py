@@ -5,11 +5,16 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from app.hikmalayer import HikmalayerClient
+from app.integrations.oauth import OAuthManager, ProviderNotConfigured
+from app.integrations.providers import provider_status
+from app.integrations.sync import MediaSyncService
+from app.integrations.webhooks import WebhookError, WebhookService
 from app.models import (
     AnalyzeRequest,
     CertificateVerifyRequest,
@@ -27,6 +32,7 @@ from app.services.evidence import EvidenceService
 from app.services.monitoring import MonitoringService
 from app.services.notification import NotificationService
 from app.services.pipeline import AutomationPipelineService
+from app.services.model_serving import DeepfakeModelServer
 from app.services.registration import OwnershipProofError, RegistrationService
 from app.services.takedown import TakedownService
 from app.services.verification import VerificationService
@@ -47,7 +53,8 @@ store = InMemoryStore.load(DATA_DIR)
 chain_client = HikmalayerClient(dev_ledger=store.blockchain_records)
 certificate_service = CertificateService(store, key_path=(DATA_DIR / "signing_key.hex") if DATA_DIR else None)
 registration_service = RegistrationService(store, chain_client, certificate_service)
-ai_service = AIService(store)
+model_server = DeepfakeModelServer()
+ai_service = AIService(store, model_server=model_server)
 verification_service = VerificationService(store, chain_client)
 monitoring_service = MonitoringService(store)
 evidence_service = EvidenceService(store)
@@ -62,6 +69,10 @@ automation_pipeline = AutomationPipelineService(
     evidence_service=evidence_service,
     notification_service=notification_service,
 )
+
+oauth_manager = OAuthManager(store)
+media_sync = MediaSyncService(store, oauth_manager, automation_pipeline)
+webhook_service = WebhookService(store, automation_pipeline)
 
 analysis_cache: dict[str, object] = {}
 ANALYSIS_CACHE_LIMIT = 1000
@@ -149,6 +160,69 @@ def ingest_connector_event(payload: ConnectorIngestEvent) -> dict:
         return automation_pipeline.ingest_from_connector(payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# --------------------------------------------------- platform API integrations
+
+
+@app.get("/api/integrations/status")
+def integrations_status() -> list[dict]:
+    return provider_status()
+
+
+@app.get("/api/model/status")
+def model_status() -> dict:
+    return model_server.status()
+
+
+@app.get("/api/connectors/oauth/{provider}/start")
+def oauth_start(provider: str, owner_id: str, owner_public_key: str) -> dict:
+    try:
+        return oauth_manager.start(provider, owner_id, owner_public_key)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProviderNotConfigured as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+
+@app.get("/api/connectors/oauth/{provider}/callback")
+def oauth_callback(provider: str, code: str, state: str) -> dict:
+    try:
+        account = oauth_manager.callback(provider, code, state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ProviderNotConfigured as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    return {"connected": True, **account.model_dump(exclude={"token_ciphertext"})}
+
+
+@app.post("/api/connectors/{connector_id}/sync")
+def sync_connector(connector_id: str) -> dict:
+    account = store.connectors.get(connector_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    try:
+        return media_sync.sync(account)
+    except ProviderNotConfigured as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+
+@app.get("/api/webhooks/{provider}")
+def webhook_verify(provider: str, request: Request) -> PlainTextResponse:
+    try:
+        challenge = webhook_service.verify_subscription(provider, dict(request.query_params))
+    except WebhookError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return PlainTextResponse(challenge)
+
+
+@app.post("/api/webhooks/{provider}")
+async def webhook_event(provider: str, request: Request) -> dict:
+    body = await request.body()
+    try:
+        return webhook_service.handle_event(provider, body, dict(request.headers))
+    except WebhookError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 # ------------------------------------------------------------------ monitoring

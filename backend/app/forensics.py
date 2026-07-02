@@ -205,7 +205,13 @@ def _spectrum_signal(image: Image.Image) -> Signal:
     )
 
 
-def analyze_image_bytes(raw_bytes: bytes) -> DetectorResult:
+def analyze_image_bytes(raw_bytes: bytes, neural_probability: float | None = None) -> DetectorResult:
+    """Fuse forensic heuristics with the neural detector when deployed.
+
+    ``neural_probability`` is HikmaonNet's calibrated fake-probability from
+    app/services/model_serving.py. When present it carries the majority of
+    the weight; heuristics remain as auditable supporting evidence.
+    """
     image = decode_image(raw_bytes)
     if image is None:
         return DetectorResult(
@@ -228,6 +234,18 @@ def analyze_image_bytes(raw_bytes: bytes) -> DetectorResult:
         _noise_signal(image),
         _spectrum_signal(image),
     ]
+    model_version = FORENSICS_VERSION
+    if neural_probability is not None:
+        signals.append(
+            Signal(
+                name="neural_detector",
+                score=neural_probability,
+                weight=1.5,
+                explanation=f"HikmaonNet calibrated fake-probability {neural_probability:.3f}",
+            )
+        )
+        model_version = f"{FORENSICS_VERSION}+hikmaonnet-v1"
+
     total_weight = sum(s.weight for s in signals)
     risk = sum(s.score * s.weight for s in signals) / (total_weight + 1e-8)
 
@@ -240,4 +258,6 @@ def analyze_image_bytes(raw_bytes: bytes) -> DetectorResult:
         verdict = "inconclusive"
     else:
         verdict = "no_artifacts_detected"
-    return DetectorResult(analyzable=True, risk_score=risk, verdict=verdict, signals=signals)
+    return DetectorResult(
+        analyzable=True, risk_score=risk, verdict=verdict, signals=signals, model_version=model_version
+    )

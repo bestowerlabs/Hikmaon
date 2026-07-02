@@ -1,5 +1,22 @@
 # Hikmaon Development Stages (Current Build)
 
+## Stage 7 — HikmaonNet neural detector + platform API access
+
+### What was done
+- **HikmaonNet** (`backend/ml/`): trainable multi-branch deepfake detector — ConvNeXt-style spatial branch, FFT frequency branch, fixed-SRM noise branch, attention fusion, calibration temperature (9.4M params). Full pipeline validated end-to-end: manifest-driven dataset with anti-recompression augmentations, AMP training loop with class balancing and cosine schedule, evaluation with per-generator AUC/EER and temperature fitting, ONNX export verified to 1e-8 against torch.
+- **Model serving** (`app/services/model_serving.py`): torch-free ONNX serving via `HIKMAON_MODEL_PATH`; the calibrated neural probability becomes the dominant manipulation signal fused with forensic heuristics; `/api/model/status` reports deployment state honestly.
+- **Platform API access** (`app/integrations/`): OAuth2 authorization-code flow with PKCE for 11 providers, Fernet-encrypted token vault with refresh, media-sync adapters against the real Graph API / Google Drive / Dropbox / OneDrive / X endpoints, and webhook receivers with Meta handshake + HMAC signature verification. Providers activate via per-platform credentials; unconfigured providers return precise setup instructions.
+- Branded dashboard (Bestower Labs) with live status chips, OAuth connect, media sync, and consent workflow; deployment guide at `docs/DEPLOYMENT.md`.
+
+### Why
+- The neural detector is the accuracy ceiling-raiser — the team trains it on GPU with the provided pipeline; everything downstream (fusion, evidence, versioning) is already wired.
+- Platform credentials are now the only thing between the scaffold and live ingestion.
+
+### What next
+- Train HikmaonNet on FaceForensics++/DFDC/Celeb-DF + diffusion sets; gate release on held-out-generator AUC.
+- Register production OAuth apps per platform; wire provider-native webhook payload translation as each goes live.
+- ffmpeg frame/audio extraction feeding the same model interface for video/audio.
+
 ## Stage 6 — Real detection engine, certificates, and consent-driven takedown
 
 ### What was done
