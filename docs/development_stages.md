@@ -1,5 +1,28 @@
 # Hikmaon Development Stages (Current Build)
 
+## Stage 6 — Real detection engine, certificates, and consent-driven takedown
+
+### What was done
+- Replaced all simulated AI with a real perceptual engine:
+  - 64-bit DCT pHash + dHash, visual feature embeddings, chunk fingerprints for undecodable media.
+  - Calibrated 0–100% match scoring (edited copies 62–100%, unrelated 0–28%) with match ≥55% / review 35–55% / no-match bands — unrelated media no longer creates incidents.
+- Added manipulation forensics (ELA, noise-residual uniformity, frequency spectrum, AI-generator metadata) with per-signal explanations and honest abstention.
+- Separated the three verdicts: perceptual match, manipulation indicators, and chain ownership — chain status no longer inflates detection confidence.
+- Hikmalayer integration became a real RPC client (`HIKMALAYER_RPC_URL`) with retry/backoff; the local dev ledger is explicitly labelled `dev-simulated`.
+- Ed25519-signed Certificate of Ownership issued per registration, verifiable via API; tampering is detected.
+- Owner consent flow: incidents open as `pending_owner_review`; Allow closes, Remove auto-files a DMCA-style takedown case tracked open → reported → removed/rejected.
+- Optional registration ownership proof (Ed25519 signature over the content hash).
+- JSON snapshot persistence (state and signing key survive restarts), CORS, real file upload in the dashboard, 15-test suite.
+
+### Why
+- Delivers the product's core promises: percentage match, detection of edited copies, verifiable ownership certificates, and consent-driven removal.
+
+### What next
+- Trained deepfake detector ensembles (face forgery, temporal video, audio anti-spoofing) behind the existing `DetectorResult` interface.
+- ffmpeg-based frame/audio decoding for video and audio perceptual matching.
+- Provider OAuth + webhooks for connectors; platform abuse-API submission in `TakedownService._submit_platform_reports`.
+- Postgres/object/vector storage; connect to the production Hikmalayer node.
+
 ## Stage 1 — Registration + Hikmalayer anchoring
 
 ### What was done

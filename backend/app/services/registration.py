@@ -2,28 +2,52 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import uuid
 from datetime import datetime, timezone
 
-import numpy as np
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from app.hikmalayer import HikmalayerClient
 from app.models import RegistrationCreate, RegistrationRecord
+from app.perceptual import fingerprint_media
+from app.services.certificate import CertificateService
 from app.storage import InMemoryStore
 
 
+class OwnershipProofError(ValueError):
+    """Raised when a registration fails (or is missing) its ownership proof."""
+
+
 class RegistrationService:
-    def __init__(self, store: InMemoryStore) -> None:
+    def __init__(
+        self,
+        store: InMemoryStore,
+        chain_client: HikmalayerClient,
+        certificate_service: CertificateService,
+    ) -> None:
         self.store = store
+        self.chain_client = chain_client
+        self.certificate_service = certificate_service
+        self.require_ownership_proof = os.environ.get("HIKMAON_REQUIRE_OWNERSHIP_PROOF", "0") == "1"
 
     def register_media(self, payload: RegistrationCreate) -> RegistrationRecord:
         raw_bytes = base64.b64decode(payload.content_b64.encode("utf-8"))
         content_hash = hashlib.sha256(raw_bytes).hexdigest()
-        fingerprint_commitment = self._fingerprint(payload.media_type, raw_bytes)
-        embedding = self._embedding(raw_bytes)
 
-        txid = self._submit_hikmalayer_tx(
+        ownership_proven = self._verify_ownership_proof(payload, content_hash)
+        if self.require_ownership_proof and not ownership_proven:
+            raise OwnershipProofError(
+                "Ownership proof required: sign the SHA-256 content hash with the owner key "
+                "and pass ownership_signature_b64"
+            )
+
+        fingerprint = fingerprint_media(raw_bytes)
+
+        tx = self.chain_client.submit_media_registration(
             content_hash=content_hash,
-            fingerprint_commitment=fingerprint_commitment,
+            fingerprint_commitment=fingerprint.commitment,
             owner_public_key=payload.owner_public_key,
             metadata_pointer=f"registrations/{payload.owner_id}/{payload.filename}",
         )
@@ -35,44 +59,38 @@ class RegistrationService:
             media_type=payload.media_type,
             filename=payload.filename,
             content_hash=content_hash,
-            fingerprint_commitment=fingerprint_commitment,
-            embedding=embedding,
+            fingerprint_commitment=fingerprint.commitment,
+            media_kind=fingerprint.media_kind,
+            phash_hex=fingerprint.phash_hex,
+            dhash_hex=fingerprint.dhash_hex,
+            chunk_fingerprints=fingerprint.chunks,
+            embedding=fingerprint.embedding,
             metadata=payload.metadata,
-            blockchain_txid=txid,
+            blockchain_txid=tx.txid,
+            chain_mode=tx.chain_mode,
+            ownership_proven=ownership_proven,
             created_at=datetime.now(tz=timezone.utc),
         )
+
+        certificate = self.certificate_service.issue(record)
+        record.certificate_id = certificate.certificate_id
+
         self.store.registrations[record.media_id] = record
+        self.store.persist()
         return record
 
-    def _fingerprint(self, media_type: str, raw_bytes: bytes) -> str:
-        # Simplified perceptual fingerprint placeholder with media-type salting.
-        fingerprint_source = media_type.encode("utf-8") + raw_bytes[:4096]
-        return hashlib.sha256(fingerprint_source).hexdigest()
+    def _verify_ownership_proof(self, payload: RegistrationCreate, content_hash: str) -> bool:
+        """Verify an Ed25519 signature over the content hash, if supplied.
 
-    def _embedding(self, raw_bytes: bytes, dim: int = 512) -> list[float]:
-        seed = int(hashlib.sha256(raw_bytes).hexdigest()[:16], 16)
-        rng = np.random.default_rng(seed)
-        vector = rng.normal(0, 1, dim)
-        norm = np.linalg.norm(vector)
-        normalized = vector / norm if norm > 0 else vector
-        return normalized.astype(float).tolist()
-
-    def _submit_hikmalayer_tx(
-        self,
-        content_hash: str,
-        fingerprint_commitment: str,
-        owner_public_key: str,
-        metadata_pointer: str,
-    ) -> str:
-        txid = f"hkml_{uuid.uuid4().hex[:18]}"
-        self.store.blockchain_records[txid] = {
-            "type": "MEDIA_REGISTRATION",
-            "payload": {
-                "content_hash": content_hash,
-                "fingerprint_commitment": fingerprint_commitment,
-                "owner_pubkey": owner_public_key,
-                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                "metadata_pointer": metadata_pointer,
-            },
-        }
-        return txid
+        `owner_public_key` must be the base64-encoded 32-byte Ed25519 public
+        key for the proof to validate.
+        """
+        if not payload.ownership_signature_b64:
+            return False
+        try:
+            public_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(payload.owner_public_key))
+            signature = base64.b64decode(payload.ownership_signature_b64)
+            public_key.verify(signature, content_hash.encode("utf-8"))
+            return True
+        except (InvalidSignature, ValueError, TypeError) as exc:
+            raise OwnershipProofError(f"Ownership signature invalid: {exc}") from exc

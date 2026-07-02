@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hikmaon Patent-Aligned Command Center</title>
+    <title>Hikmaon Command Center</title>
     <style>
       body { font-family: Inter, Arial, sans-serif; margin: 1.5rem; background: #f4f7ff; color: #111827; }
       h1 { margin: 0 0 0.4rem 0; }
@@ -11,29 +11,40 @@
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }
       .card { background: #fff; border-radius: 12px; padding: 1rem; box-shadow: 0 3px 12px rgba(2, 6, 23, 0.08); }
       .pill { display:inline-block; padding:0.2rem 0.5rem; border-radius:999px; font-size:0.75rem; background:#e2e8f0; margin-bottom:0.4rem; }
-      input, textarea, select, button { width: 100%; margin-top: 0.4rem; margin-bottom: 0.6rem; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; }
+      input, textarea, select, button { width: 100%; margin-top: 0.4rem; margin-bottom: 0.6rem; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; box-sizing: border-box; }
       button { border: none; background: #1d4ed8; color: #fff; cursor: pointer; }
       button.secondary { background: #334155; }
+      button.allow { background: #15803d; }
+      button.remove { background: #b91c1c; }
       pre { background: #0f172a; color: #dbeafe; border-radius: 10px; padding: 0.8rem; max-height: 360px; overflow: auto; }
+      .incident { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.7rem; margin-bottom: 0.7rem; }
+      .incident .row { display: flex; gap: 0.5rem; }
+      .pct { font-size: 1.4rem; font-weight: 700; }
+      .status { font-size: 0.78rem; padding: 0.15rem 0.5rem; border-radius: 999px; background:#fef3c7; }
+      .status.closed, .status.allowed_by_owner { background:#dcfce7; }
+      .status.removal_requested { background:#fee2e2; }
+      .muted { color:#64748b; font-size:0.82rem; }
     </style>
   </head>
   <body>
     <h1>Hikmaon Command Center</h1>
-    <p class="sub">Automatic social/cloud ingest → hash/fingerprint/embedding → Hikmalayer anchoring → AI misuse detection → blockchain verification → owner alert + evidence.</p>
+    <p class="sub">Connect accounts → hash + fingerprint + anchor on Hikmalayer (ownership certificate) → AI perceptual matching &amp; manipulation forensics → owner consent → automated takedown.</p>
 
     <div class="grid">
       <section class="card">
-        <div class="pill">Optional Module: Social + Cloud Accounts</div>
-        <h3>1) Connect External Accounts</h3>
+        <div class="pill">Step 1 — Social + Cloud Accounts</div>
+        <h3>Connect External Accounts</h3>
         <input id="ownerId" placeholder="Owner ID" value="owner-01" />
         <input id="ownerPub" placeholder="Owner Public Key" value="pubkey_owner_123456" />
         <select id="provider">
-          <option value="x">X</option>
           <option value="instagram">Instagram</option>
           <option value="facebook">Facebook</option>
+          <option value="snapchat">Snapchat</option>
+          <option value="x">X</option>
           <option value="youtube">YouTube</option>
           <option value="tiktok">TikTok</option>
           <option value="linkedin">LinkedIn</option>
+          <option value="reddit">Reddit</option>
           <option value="google_drive">Google Drive</option>
           <option value="dropbox">Dropbox</option>
           <option value="onedrive">OneDrive</option>
@@ -44,23 +55,38 @@
       </section>
 
       <section class="card">
-        <div class="pill">Realtime Ingest Trigger</div>
-        <h3>2) Simulate Upload Event from Connected Source</h3>
-        <input id="connectorId" placeholder="Connector ID (from output)" />
+        <div class="pill">Step 2 — Register &amp; Anchor</div>
+        <h3>Register Original Media</h3>
+        <input id="connectorId" placeholder="Connector ID (optional, from Step 1)" />
         <select id="mediaType"><option>image</option><option>video</option><option>audio</option></select>
-        <input id="filename" placeholder="Filename" value="owner-upload.png" />
-        <textarea id="mediaText" rows="3">original-owner-media-content</textarea>
+        <input id="registerFile" type="file" />
         <input id="sourceUrl" placeholder="Source URL" value="https://instagram.com/p/abc123" />
-        <button onclick="ingestEvent()">Ingest and Anchor on Hikmalayer</button>
+        <button onclick="registerMedia()">Register + Anchor on Hikmalayer</button>
+        <button class="secondary" onclick="showCertificate()">Show Ownership Certificate</button>
+        <p class="muted">Certificate is Ed25519-signed and anchored via the Hikmalayer transaction id.</p>
       </section>
 
       <section class="card">
-        <div class="pill">Internet Misuse Detection</div>
-        <h3>3) Run Realtime Misuse Scan Cycle</h3>
-        <input id="susFile" placeholder="Suspicious filename" value="misused-content.png" />
-        <textarea id="susText" rows="3">original-owner-media-content</textarea>
-        <button onclick="runDetectionCycle()">Detect + Verify + Notify + Evidence</button>
-        <button class="secondary" onclick="listIncidents()">List Incidents</button>
+        <div class="pill">Step 3 — Detection</div>
+        <h3>Scan Suspicious Media</h3>
+        <input id="suspiciousFile" type="file" />
+        <button onclick="runDetectionCycle()">Detect: % Match + Forensics + Verify + Alert</button>
+        <button class="secondary" onclick="analyzeOnly()">Analyze Only (no incident)</button>
+        <button class="secondary" onclick="indexPublicCopy()">Index as Public URL Sighting</button>
+        <input id="publicUrl" placeholder="Public URL where media was seen" value="https://example.com/repost.jpg" />
+      </section>
+    </div>
+
+    <div class="grid" style="margin-top:1rem;">
+      <section class="card">
+        <h3>Incidents — Owner Consent</h3>
+        <button class="secondary" onclick="listIncidents()">Refresh Incidents</button>
+        <div id="incidents"></div>
+      </section>
+      <section class="card">
+        <h3>Takedown Cases</h3>
+        <button class="secondary" onclick="listTakedowns()">Refresh Cases</button>
+        <div id="takedowns"></div>
       </section>
     </div>
 

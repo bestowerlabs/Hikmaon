@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 MediaType = Literal["image", "video", "audio"]
@@ -13,11 +13,22 @@ ProviderType = Literal[
     "facebook",
     "youtube",
     "tiktok",
+    "snapchat",
     "linkedin",
+    "reddit",
     "google_drive",
     "dropbox",
     "onedrive",
 ]
+
+IncidentStatus = Literal[
+    "pending_owner_review",
+    "allowed_by_owner",
+    "removal_requested",
+    "closed",
+]
+
+TakedownStatus = Literal["open", "reported", "removed", "rejected"]
 
 
 class RegistrationCreate(BaseModel):
@@ -27,6 +38,10 @@ class RegistrationCreate(BaseModel):
     filename: str
     content_b64: str = Field(description="Base64-encoded media bytes")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    ownership_signature_b64: str | None = Field(
+        default=None,
+        description="Ed25519 signature over the SHA-256 content hash, proving control of owner_public_key",
+    )
 
 
 class RegistrationRecord(BaseModel):
@@ -37,9 +52,16 @@ class RegistrationRecord(BaseModel):
     filename: str
     content_hash: str
     fingerprint_commitment: str
-    embedding: list[float]
-    metadata: dict[str, Any]
+    media_kind: str  # "image" | "binary" — what the perceptual engine decoded
+    phash_hex: str | None = None
+    dhash_hex: str | None = None
+    chunk_fingerprints: list[str] = Field(default_factory=list)
+    embedding: list[float] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     blockchain_txid: str
+    chain_mode: str
+    ownership_proven: bool = False
+    certificate_id: str | None = None
     created_at: datetime
 
 
@@ -47,6 +69,35 @@ class AnalyzeRequest(BaseModel):
     media_type: MediaType
     filename: str
     content_b64: str
+
+
+class MatchResult(BaseModel):
+    matched: bool
+    outcome: Literal["match", "possible_match", "no_match", "no_registrations"]
+    match_percentage: float = 0.0
+    matched_media_id: str | None = None
+    matched_owner_id: str | None = None
+    component_scores: dict[str, Any] = Field(default_factory=dict)
+    match_threshold: float
+    review_threshold: float
+
+
+class OwnershipResult(BaseModel):
+    verified: bool
+    txid: str | None = None
+    chain_mode: str | None = None
+    detail: str = ""
+
+
+class AnalysisReport(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    suspicious_media_id: str
+    match: MatchResult
+    manipulation: dict[str, Any]
+    ownership: OwnershipResult
+    matched_urls: list[str] = Field(default_factory=list)
+    model_versions: dict[str, str] = Field(default_factory=dict)
 
 
 class VerifyRequest(BaseModel):
@@ -62,13 +113,16 @@ class NotificationRecord(BaseModel):
 
 
 class EvidenceReport(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     report_id: str
     suspicious_media_id: str
     registered_txid: str
     owner_public_key: str
     timestamp: datetime
-    similarity_score: float
-    deepfake_probability: float
+    match_percentage: float
+    manipulation_risk_score: float
+    manipulation_verdict: str
     matched_urls: list[str]
     analysis_metadata: dict[str, Any]
     model_versions: dict[str, str]
@@ -103,11 +157,57 @@ class IncidentRecord(BaseModel):
     incident_id: str
     suspicious_media_id: str
     matched_media_id: str
-    similarity_score: float
-    deepfake_probability: float
-    confidence: float
+    match_percentage: float
+    manipulation_risk_score: float
+    manipulation_verdict: str
     blockchain_verified: bool
     matched_urls: list[str]
     evidence_report_id: str
     notified_owner: str
+    status: IncidentStatus = "pending_owner_review"
+    owner_decision_at: datetime | None = None
+    takedown_case_id: str | None = None
     created_at: datetime
+
+
+class IncidentDecision(BaseModel):
+    decision: Literal["allow", "remove"]
+    reason: str | None = None
+
+
+class TakedownCase(BaseModel):
+    case_id: str
+    incident_id: str
+    matched_media_id: str
+    owner_id: str
+    target_urls: list[str]
+    notice_text: str
+    certificate_id: str | None = None
+    status: TakedownStatus = "open"
+    status_history: list[dict[str, str]] = Field(default_factory=list)
+    created_at: datetime
+
+
+class TakedownStatusUpdate(BaseModel):
+    status: TakedownStatus
+    note: str | None = None
+
+
+class OwnershipCertificate(BaseModel):
+    certificate_id: str
+    media_id: str
+    content_hash: str
+    fingerprint_commitment: str
+    owner_id: str
+    owner_public_key: str
+    blockchain_txid: str
+    chain_mode: str
+    # Kept as the exact signed string — re-serialization must never alter it.
+    issued_at: str
+    issuer: str = "Hikmaon"
+    signature_b64: str
+    signing_key_id: str
+
+
+class CertificateVerifyRequest(BaseModel):
+    certificate: dict[str, Any]

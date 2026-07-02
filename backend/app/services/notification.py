@@ -20,4 +20,5 @@ class NotificationService:
             sent_at=datetime.now(tz=timezone.utc),
         )
         self.store.notifications.append(record)
+        self.store.persist()
         return record
