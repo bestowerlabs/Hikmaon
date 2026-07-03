@@ -2,6 +2,112 @@ const API = 'http://localhost:8000';
 
 let lastRegisteredMediaId = null;
 
+// ------------------------------------------------------------------ auth state
+function tokens() {
+  return {
+    access: localStorage.getItem('hikmaon_access'),
+    refresh: localStorage.getItem('hikmaon_refresh'),
+    user: JSON.parse(localStorage.getItem('hikmaon_user') || 'null'),
+  };
+}
+
+function saveTokens(data) {
+  localStorage.setItem('hikmaon_access', data.access_token);
+  localStorage.setItem('hikmaon_refresh', data.refresh_token);
+  localStorage.setItem('hikmaon_user', JSON.stringify(data.user));
+  updateAuthUI();
+}
+
+function clearTokens() {
+  localStorage.removeItem('hikmaon_access');
+  localStorage.removeItem('hikmaon_refresh');
+  localStorage.removeItem('hikmaon_user');
+  updateAuthUI();
+}
+
+function updateAuthUI() {
+  const { user } = tokens();
+  document.getElementById('authForms').style.display = user ? 'none' : 'block';
+  document.getElementById('authSession').style.display = user ? 'block' : 'none';
+  if (user) {
+    document.getElementById('whoami').textContent = `${user.display_name} <${user.email}>`;
+    document.getElementById('ownerKey').textContent = user.owner_public_key.slice(0, 24) + '…';
+  }
+}
+
+function output(data) {
+  document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+}
+
+async function request(path, payload, method = 'POST', retried = false) {
+  const headers = { 'Content-Type': 'application/json' };
+  const { access } = tokens();
+  if (access) headers['Authorization'] = `Bearer ${access}`;
+  const response = await fetch(`${API}${path}`, {
+    method,
+    headers,
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+  if (response.status === 401 && !retried && tokens().refresh) {
+    const refreshed = await fetch(`${API}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: tokens().refresh }),
+    });
+    if (refreshed.ok) {
+      saveTokens(await refreshed.json());
+      return request(path, payload, method, true);
+    }
+    clearTokens();
+  }
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+const get = (path) => request(path, null, 'GET');
+
+// ---------------------------------------------------------------- auth actions
+async function authRegister() {
+  try {
+    const data = await request('/api/auth/register', {
+      email: document.getElementById('authEmail').value,
+      password: document.getElementById('authPassword').value,
+      display_name: document.getElementById('authName').value,
+    });
+    saveTokens(data);
+    output({ stage: 'account_created', user: data.user });
+    refreshAll();
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function authLogin() {
+  try {
+    const data = await request('/api/auth/login', {
+      email: document.getElementById('authEmail').value,
+      password: document.getElementById('authPassword').value,
+    });
+    saveTokens(data);
+    output({ stage: 'logged_in', user: data.user });
+    refreshAll();
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function authLogout() {
+  const { refresh } = tokens();
+  try {
+    if (refresh) await request('/api/auth/logout', { refresh_token: refresh });
+  } finally {
+    clearTokens();
+    output({ stage: 'logged_out' });
+  }
+}
+
+// ------------------------------------------------------------------- statusbar
 async function loadStatusBar() {
   try {
     const health = await (await fetch(`${API}/health`)).json();
@@ -16,61 +122,23 @@ async function loadStatusBar() {
     document.getElementById('chipChain').textContent = 'backend offline';
   }
 }
-window.addEventListener('load', () => { loadStatusBar(); listIncidents(); listTakedowns(); });
 
-async function oauthStart() {
-  try {
-    const provider = document.getElementById('provider').value;
-    const params = new URLSearchParams({
-      owner_id: document.getElementById('ownerId').value,
-      owner_public_key: document.getElementById('ownerPub').value,
-    });
-    const res = await fetch(`${API}/api/connectors/oauth/${provider}/start?${params}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
-    output({ stage: 'oauth_authorization_url', ...data });
-    window.open(data.authorization_url, '_blank');
-  } catch (err) {
-    output({ error: err.message });
+function refreshAll() {
+  loadStatusBar();
+  if (tokens().user) {
+    listIncidents();
+    listTakedowns();
+    listCrawlJobs();
   }
 }
+window.addEventListener('load', () => { updateAuthUI(); refreshAll(); });
 
-async function syncConnector() {
-  try {
-    const connectorId = document.getElementById('connectorId').value.trim();
-    if (!connectorId) throw new Error('Enter a connector ID first');
-    const data = await request(`/api/connectors/${connectorId}/sync`, null);
-    output({ stage: 'media_sync', ...data });
-  } catch (err) {
-    output({ error: err.message });
-  }
-}
-
-function output(data) {
-  document.getElementById('output').textContent = JSON.stringify(data, null, 2);
-}
-
-async function request(path, payload, method = 'POST') {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: payload ? JSON.stringify(payload) : undefined,
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(JSON.stringify(data));
-  }
-  return data;
-}
-
+// ------------------------------------------------------------------ connectors
 function fileToB64(inputId) {
   return new Promise((resolve, reject) => {
     const input = document.getElementById(inputId);
     const file = input.files && input.files[0];
-    if (!file) {
-      reject(new Error(`Choose a file in "${inputId}" first`));
-      return;
-    }
+    if (!file) { reject(new Error(`Choose a file in "${inputId}" first`)); return; }
     const reader = new FileReader();
     reader.onload = () => resolve({ b64: reader.result.split(',')[1], name: file.name });
     reader.onerror = () => reject(reader.error);
@@ -78,11 +146,20 @@ function fileToB64(inputId) {
   });
 }
 
+async function oauthStart() {
+  try {
+    const provider = document.getElementById('provider').value;
+    const data = await get(`/api/connectors/oauth/${provider}/start`);
+    output({ stage: 'oauth_authorization_url', ...data });
+    window.open(data.authorization_url, '_blank');
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
 async function connectAccount() {
   try {
     const data = await request('/api/connectors', {
-      owner_id: document.getElementById('ownerId').value,
-      owner_public_key: document.getElementById('ownerPub').value,
       provider: document.getElementById('provider').value,
       account_handle: document.getElementById('handle').value,
     });
@@ -94,14 +171,20 @@ async function connectAccount() {
 }
 
 async function loadConnectors() {
+  try { output(await get('/api/connectors')); } catch (err) { output({ error: err.message }); }
+}
+
+async function syncConnector() {
   try {
-    const res = await fetch(`${API}/api/connectors`);
-    output(await res.json());
+    const connectorId = document.getElementById('connectorId').value.trim();
+    if (!connectorId) throw new Error('Enter a connector ID first');
+    output({ stage: 'media_sync', ...(await request(`/api/connectors/${connectorId}/sync`, null)) });
   } catch (err) {
     output({ error: err.message });
   }
 }
 
+// ---------------------------------------------------------------- registration
 async function registerMedia() {
   try {
     const { b64, name } = await fileToB64('registerFile');
@@ -115,17 +198,14 @@ async function registerMedia() {
         content_b64: b64,
         source_url: document.getElementById('sourceUrl').value,
       });
-      lastRegisteredMediaId = data.media_id;
     } else {
       data = await request('/api/registrations', {
-        owner_id: document.getElementById('ownerId').value,
-        owner_public_key: document.getElementById('ownerPub').value,
         media_type: document.getElementById('mediaType').value,
         filename: name,
         content_b64: b64,
       });
-      lastRegisteredMediaId = data.media_id;
     }
+    lastRegisteredMediaId = data.media_id;
     output({ stage: 'registered_and_anchored', ...data });
   } catch (err) {
     output({ error: err.message });
@@ -135,8 +215,7 @@ async function registerMedia() {
 async function showCertificate() {
   try {
     if (!lastRegisteredMediaId) throw new Error('Register media first');
-    const res = await fetch(`${API}/api/certificates/${lastRegisteredMediaId}`);
-    const cert = await res.json();
+    const cert = await get(`/api/certificates/${lastRegisteredMediaId}`);
     const verification = await request('/api/certificates/verify', { certificate: cert });
     output({ certificate: cert, verification });
   } catch (err) {
@@ -144,6 +223,7 @@ async function showCertificate() {
   }
 }
 
+// ------------------------------------------------------------------- detection
 async function runDetectionCycle() {
   try {
     const { b64, name } = await fileToB64('suspiciousFile');
@@ -186,16 +266,49 @@ async function indexPublicCopy() {
   }
 }
 
+// --------------------------------------------------------------------- crawler
+async function startCrawl() {
+  try {
+    const seeds = document.getElementById('crawlSeeds').value
+      .split(',').map((s) => s.trim()).filter(Boolean);
+    const data = await request('/api/crawler/jobs', {
+      seed_urls: seeds,
+      max_pages: parseInt(document.getElementById('crawlMaxPages').value || '50', 10),
+      max_depth: 2,
+    });
+    output({ stage: 'crawl_started', ...data });
+    listCrawlJobs();
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+async function listCrawlJobs() {
+  try {
+    const jobs = await get('/api/crawler/jobs');
+    const container = document.getElementById('crawlJobs');
+    container.innerHTML = jobs.length ? '' : '<p class="muted">No crawl jobs.</p>';
+    for (const job of jobs.reverse()) {
+      const div = document.createElement('div');
+      div.className = 'incident';
+      div.innerHTML = `
+        <span class="status ${job.status === 'completed' ? 'closed' : ''}">${job.status}</span>
+        <div><strong>${job.job_id}</strong></div>
+        <div class="muted">${job.seed_urls.join(', ')}</div>
+        <div class="muted">pages ${job.pages_crawled} · media ${job.media_indexed} · matches ${job.matches_found}</div>`;
+      container.appendChild(div);
+    }
+  } catch (err) {
+    output({ error: err.message });
+  }
+}
+
+// ----------------------------------------------------------- incidents & cases
 async function listIncidents() {
   try {
-    const res = await fetch(`${API}/api/incidents`);
-    const incidents = await res.json();
+    const incidents = await get('/api/incidents');
     const container = document.getElementById('incidents');
-    container.innerHTML = '';
-    if (!incidents.length) {
-      container.innerHTML = '<p class="muted">No incidents.</p>';
-      return;
-    }
+    container.innerHTML = incidents.length ? '' : '<p class="muted">No incidents.</p>';
     for (const incident of incidents.reverse()) {
       const div = document.createElement('div');
       div.className = 'incident';
@@ -230,14 +343,9 @@ async function decide(incidentId, decision) {
 
 async function listTakedowns() {
   try {
-    const res = await fetch(`${API}/api/takedowns`);
-    const cases = await res.json();
+    const cases = await get('/api/takedowns');
     const container = document.getElementById('takedowns');
-    container.innerHTML = '';
-    if (!cases.length) {
-      container.innerHTML = '<p class="muted">No takedown cases.</p>';
-      return;
-    }
+    container.innerHTML = cases.length ? '' : '<p class="muted">No takedown cases.</p>';
     for (const item of cases.reverse()) {
       const div = document.createElement('div');
       div.className = 'incident';

@@ -172,16 +172,27 @@ def chunk_similarity(left: list[str], right: list[str]) -> float:
 class MediaFingerprint:
     """Complete perceptual identity of one media item."""
 
-    media_kind: str  # "image" | "binary"
+    media_kind: str  # "image" | "video" | "audio" | "binary"
     phash_hex: str | None = None
     dhash_hex: str | None = None
     embedding: list[float] = field(default_factory=list)
     chunks: list[str] = field(default_factory=list)
+    frame_phashes: list[str] = field(default_factory=list)  # video frame hashes
+    audio_bits: list[int] = field(default_factory=list)  # audio subfingerprints
 
     @property
     def commitment(self) -> str:
         """Hash commitment of the fingerprint, suitable for on-chain anchoring."""
-        material = f"{self.media_kind}|{self.phash_hex}|{self.dhash_hex}|{','.join(self.chunks)}"
+        material = "|".join(
+            [
+                self.media_kind,
+                str(self.phash_hex),
+                str(self.dhash_hex),
+                ",".join(self.chunks),
+                ",".join(self.frame_phashes),
+                ",".join(str(b) for b in self.audio_bits),
+            ]
+        )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -195,28 +206,75 @@ def fingerprint_media(raw_bytes: bytes) -> MediaFingerprint:
             embedding=embed_image(image).tolist(),
             chunks=chunk_fingerprints(raw_bytes),
         )
+
+    # Not a still image: try full video/audio perceptual fingerprinting.
+    from app.av_fingerprint import fingerprint_av_bytes
+
+    av = fingerprint_av_bytes(raw_bytes)
+    if av.media_kind in ("video", "audio"):
+        return MediaFingerprint(
+            media_kind=av.media_kind,
+            frame_phashes=av.frame_phashes,
+            audio_bits=av.audio_bits,
+            chunks=chunk_fingerprints(raw_bytes),
+        )
     return MediaFingerprint(media_kind="binary", chunks=chunk_fingerprints(raw_bytes))
+
+
+def _match_images(probe: MediaFingerprint, registered: MediaFingerprint) -> dict:
+    p_sim = hash_similarity(int(probe.phash_hex, 16), int(registered.phash_hex, 16))
+    d_sim = hash_similarity(int(probe.dhash_hex, 16), int(registered.dhash_hex, 16))
+    emb_sim = cosine(probe.embedding, registered.embedding)
+    # Rescale: unrelated images sit near 0.5 hash similarity and ~0.4
+    # embedding cosine; identical media sits at 1.0 on all components.
+    p_score = max(0.0, min(1.0, (p_sim - 0.5) / 0.5))
+    d_score = max(0.0, min(1.0, (d_sim - 0.5) / 0.5))
+    e_score = max(0.0, min(1.0, (emb_sim - 0.4) / 0.6))
+    combined = 0.45 * p_score + 0.20 * d_score + 0.35 * e_score
+    return {
+        "match_percentage": round(100.0 * combined, 1),
+        "phash_similarity": round(p_sim, 4),
+        "dhash_similarity": round(d_sim, 4),
+        "embedding_similarity": round(emb_sim, 4),
+        "method": "perceptual-image-v1",
+    }
+
+
+def _match_image_to_frames(image_fp: MediaFingerprint, video_fp: MediaFingerprint) -> dict:
+    """A still image against a video's frames (e.g. a frame-grab repost)."""
+    image_hash = int(image_fp.phash_hex, 16)
+    best = max(
+        (hash_similarity(image_hash, int(frame, 16)) for frame in video_fp.frame_phashes),
+        default=0.0,
+    )
+    percentage = max(0.0, min(1.0, (best - 0.5) / 0.5)) * 100.0
+    return {
+        "match_percentage": round(percentage, 1),
+        "best_frame_similarity": round(best, 4),
+        "method": "image-vs-video-frames-v1",
+    }
 
 
 def match_percentage(probe: MediaFingerprint, registered: MediaFingerprint) -> dict:
     """Compare two fingerprints; returns component scores and a 0-100%."""
-    if probe.media_kind == "image" and registered.media_kind == "image":
-        p_sim = hash_similarity(int(probe.phash_hex, 16), int(registered.phash_hex, 16))
-        d_sim = hash_similarity(int(probe.dhash_hex, 16), int(registered.dhash_hex, 16))
-        emb_sim = cosine(probe.embedding, registered.embedding)
-        # Rescale: unrelated images sit near 0.5 hash similarity and ~0.4
-        # embedding cosine; identical media sits at 1.0 on all components.
-        p_score = max(0.0, min(1.0, (p_sim - 0.5) / 0.5))
-        d_score = max(0.0, min(1.0, (d_sim - 0.5) / 0.5))
-        e_score = max(0.0, min(1.0, (emb_sim - 0.4) / 0.6))
-        combined = 0.45 * p_score + 0.20 * d_score + 0.35 * e_score
-        return {
-            "match_percentage": round(100.0 * combined, 1),
-            "phash_similarity": round(p_sim, 4),
-            "dhash_similarity": round(d_sim, 4),
-            "embedding_similarity": round(emb_sim, 4),
-            "method": "perceptual-image-v1",
-        }
+    kinds = (probe.media_kind, registered.media_kind)
+
+    if kinds == ("image", "image"):
+        return _match_images(probe, registered)
+
+    if probe.media_kind == "image" and registered.frame_phashes:
+        return _match_image_to_frames(probe, registered)
+    if registered.media_kind == "image" and probe.frame_phashes:
+        return _match_image_to_frames(registered, probe)
+
+    if (probe.frame_phashes or probe.audio_bits) and (registered.frame_phashes or registered.audio_bits):
+        from app.av_fingerprint import AVFingerprint, match_av
+
+        return match_av(
+            AVFingerprint(probe.media_kind, probe.frame_phashes, probe.audio_bits),
+            AVFingerprint(registered.media_kind, registered.frame_phashes, registered.audio_bits),
+        )
+
     overlap = chunk_similarity(probe.chunks, registered.chunks)
     return {
         "match_percentage": round(100.0 * overlap, 1),

@@ -6,16 +6,25 @@ Hikmaon is a **blockchain-anchored digital authenticity and deepfake misuse dete
 
 ## What it does
 
-1. **Connect** — owners link social/cloud accounts (Instagram, Facebook, X, YouTube, TikTok, LinkedIn, Reddit, Google Drive, Dropbox, OneDrive) via real OAuth2 flows; uploads flow in through media sync and realtime webhooks.
-2. **Anchor** — every media item gets a SHA-256 hash, perceptual fingerprints, and an AI embedding; the proof is anchored on **Hikmalayer** and the owner receives an **Ed25519-signed Certificate of Ownership** anyone can verify.
-3. **Detect** — monitoring compares suspicious media perceptually and reports a **0–100% match** (edited copies — re-encoded, resized, cropped — still match). Manipulation analysis fuses **HikmaonNet** (trainable neural detector) with forensic signals (Error Level Analysis, noise residuals, frequency spectrum, AI-generator metadata), each explained, with honest abstention.
-4. **Enforce** — on a confirmed match the owner is alerted and chooses **Allow** or **Remove**; refusal auto-files a DMCA-style takedown case with the blockchain evidence attached, tracked to `removed`/`rejected`.
+1. **Accounts** — modern login/register: Argon2id password hashing, JWT sessions with rotating refresh tokens (reuse detection revokes the session family), login throttling with lockout, and an **Ed25519 ownership keypair issued to every account** so all registrations are cryptographically signed automatically. All owner data is scoped per account.
+2. **Connect** — owners link social/cloud accounts (Instagram, Facebook, X, YouTube, TikTok, LinkedIn, Reddit, Google Drive, Dropbox, OneDrive) via real OAuth2 + PKCE flows bound to the logged-in user; uploads flow in through media sync and realtime webhooks.
+3. **Anchor** — every media item gets a SHA-256 hash, perceptual fingerprints, and an AI embedding; the proof is anchored on **Hikmalayer** and the owner receives an **Ed25519-signed Certificate of Ownership** anyone can verify.
+4. **Detect** — suspicious media is compared perceptually with a **0–100% match score** across all modalities:
+   - **Images**: DCT pHash + dHash + visual embeddings (survives re-encode, resize, blur, brightness, moderate crops)
+   - **Video**: per-frame perceptual hashing with temporal alignment — re-encoded, downscaled, bitrate-crushed, and *trimmed* copies still match, and the alignment reports where the clip was cut
+   - **Audio**: Haitsma–Kalker spectral fingerprinting (the industrial robust-audio-hash design) — MP3/AAC re-encodes, volume changes, and trims match by bit-error-rate; a video's soundtrack is fingerprinted too, so clips match on either channel
+   - Manipulation analysis fuses **HikmaonNet** (trainable neural detector) with explainable forensic signals, with honest abstention.
+5. **Monitor** — an **autonomous web crawler** (robots.txt-compliant, per-host politeness, SSRF-hardened, domain-scoped) scans seed sites, extracts and fingerprints media, and automatically opens incidents on matches. Run on demand via API/dashboard or on a schedule (`HIKMAON_CRAWLER_SEEDS` + `HIKMAON_CRAWLER_INTERVAL_MINUTES`).
+6. **Enforce** — on a confirmed match the owner is alerted and chooses **Allow** or **Remove**; refusal auto-files a DMCA-style takedown case with the blockchain evidence attached, tracked to `removed`/`rejected`.
 
 ## Architecture
 
 | Layer | Where | Status |
 |---|---|---|
 | Perceptual matching (pHash/dHash + embeddings, % score) | `backend/app/perceptual.py` | working, calibrated |
+| **Video/audio matching** (frame-hash temporal alignment + Haitsma–Kalker audio fingerprints, ffmpeg-based) | `backend/app/av_fingerprint.py` | working, calibrated |
+| **Auth** (Argon2id, JWT + rotating refresh, throttling, per-user Ed25519 keys) | `backend/app/auth.py` | working |
+| **Autonomous crawler** (robots.txt, politeness, SSRF guard, auto-incidents) | `backend/app/services/crawler.py` | working |
 | Manipulation forensics (ELA, noise, spectrum, metadata) | `backend/app/forensics.py` | working, calibrated |
 | **HikmaonNet neural detector** (spatial + frequency + SRM-noise branches, attention fusion) | `backend/ml/` | architecture + full training/eval/export pipeline ready — **train on your GPU cluster** |
 | Model serving (ONNX, torch-free) | `backend/app/services/model_serving.py` | working (`HIKMAON_MODEL_PATH`) |
@@ -37,7 +46,7 @@ uvicorn app.main:app --reload           # API on :8000
 # open frontend/index.html in a browser
 ```
 
-Run tests (26 tests, full lifecycle covered):
+Run tests (45 tests: auth, image/video/audio matching, forensics, certificates, crawler, integrations, full lifecycle):
 
 ```bash
 cd backend && PYTHONPATH=. pytest
@@ -65,7 +74,7 @@ Manifest format, dataset guidance (FaceForensics++, DFDC, Celeb-DF, diffusion se
 
 ## Honest scope notes
 
-Deepfake detection is an adversarial race; no system is perfect and anyone claiming 100% is wrong. Hikmaon's design goal is **calibrated accuracy with honest abstention**: percentage scores with explicit thresholds, per-signal explanations in every evidence report, model versions logged for auditability, and `dev-simulated` vs `rpc` chain modes that can never be confused. Remaining production increments: train HikmaonNet on the full dataset mix (pipeline ready), ffmpeg-based video/audio frame matching, per-platform takedown API submission, and Postgres/vector-DB storage.
+Deepfake detection is an adversarial race; no system is perfect and anyone claiming 100% is wrong. Hikmaon's design goal is **calibrated accuracy with honest abstention**: percentage scores with explicit thresholds, per-signal explanations in every evidence report, model versions logged for auditability, and `dev-simulated` vs `rpc` chain modes that can never be confused. Audio fingerprinting is strongest on real-world audio (speech/music); spectrally sparse synthetic tones are a known weak case. Remaining production increments: train HikmaonNet on the full dataset mix (pipeline ready), per-platform takedown API submission, per-platform OAuth app registration, and Postgres/vector-DB storage.
 
 ---
 
