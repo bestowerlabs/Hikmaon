@@ -16,3 +16,9 @@ htmlcov/
 # Local persistence (registrations, dev ledger, signing key)
 backend/data/
 data/
+
+# ML training outputs and exported models
+backend/runs/
+runs/
+*.onnx
+*.pt

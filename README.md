@@ -1,8 +1,36 @@
 # Hikmaon — by Bestower Labs
 
-Hikmaon is a **blockchain-anchored digital authenticity and deepfake misuse detection & prevention platform**: AI-based deepfake detection and prevention using a hybrid blockchain network (Hikmalayer).
+**AI-based deepfake detection and prevention using a hybrid blockchain network (Hikmalayer).**
 
-![Hikmaon Command Center dashboard](docs/dashboard.png)
+Hikmaon is a blockchain-anchored digital authenticity platform: it proves who owns a piece of media, recognizes stolen or edited copies of it anywhere with a percentage-match score, analyzes media for manipulation, and enforces the owner's decision with automated takedowns.
+
+## Live system evidence
+
+The screenshot below is the **actual dashboard of a running Hikmaon instance** (not a mockup), captured during end-to-end verification — logged-in session for Ayan Rao with his account's Ed25519 ownership key, a completed autonomous crawler job, and two real incidents produced by the detection engine:
+
+- a **stolen video** (trimmed 2 s, downscaled, bitrate-crushed) detected at **89.8% match** — owner refused consent, takedown case filed with DMCA notice
+- a **stolen image** (resized + JPEG-recompressed) detected at **97.1% match** — awaiting the owner's Allow/Remove decision
+
+![Hikmaon Command Center — live logged-in session (Ayan Rao) with real incidents and a takedown case](docs/dashboard.png)
+
+### Verified detection results
+
+All numbers below were measured on this codebase during development (test suite reproduces them):
+
+| Scenario | Result |
+|---|---|
+| Image: identical / re-encoded (JPEG q40) / resized / blurred | **100% match** |
+| Image: brightness +25% / grayscale / 90% crop | **93.6% / 87.7% / 62.3%** |
+| Image: unrelated content | 0–28% (no match) |
+| Video: trimmed 2 s + downscaled + heavily recompressed | **89.8% match**, trim offset located |
+| Video: unrelated content | 17.3% (no match) |
+| Audio: MP3-32k re-encode + 3 s trim | **81.1% match** (BER 0.09) |
+| Audio: volume +60% + re-encode | **85.9% match** (BER 0.07) |
+| Audio: unrelated content | 13.5% (BER 0.43, no match) |
+| Certificate tampering (any field changed) | verification fails |
+| Refresh-token replay after rotation | session family revoked (401) |
+
+Decision thresholds: **match ≥ 55%** (incident opened, owner alerted), **35–55%** review band (queued, no alert), **< 35%** no match. Audio uses the canonical Haitsma–Kalker BER < 0.35 decision line.
 
 ## What it does
 
@@ -13,11 +41,25 @@ Hikmaon is a **blockchain-anchored digital authenticity and deepfake misuse dete
    - **Images**: DCT pHash + dHash + visual embeddings (survives re-encode, resize, blur, brightness, moderate crops)
    - **Video**: per-frame perceptual hashing with temporal alignment — re-encoded, downscaled, bitrate-crushed, and *trimmed* copies still match, and the alignment reports where the clip was cut
    - **Audio**: Haitsma–Kalker spectral fingerprinting (the industrial robust-audio-hash design) — MP3/AAC re-encodes, volume changes, and trims match by bit-error-rate; a video's soundtrack is fingerprinted too, so clips match on either channel
-   - Manipulation analysis fuses **HikmaonNet** (trainable neural detector) with explainable forensic signals, with honest abstention.
+   - Manipulation analysis fuses **HikmaonNet** (trainable neural detector) with explainable forensic signals (Error Level Analysis, noise residuals, frequency spectrum, AI-generator metadata), with honest abstention.
 5. **Monitor** — an **autonomous web crawler** (robots.txt-compliant, per-host politeness, SSRF-hardened, domain-scoped) scans seed sites, extracts and fingerprints media, and automatically opens incidents on matches. Run on demand via API/dashboard or on a schedule (`HIKMAON_CRAWLER_SEEDS` + `HIKMAON_CRAWLER_INTERVAL_MINUTES`).
 6. **Enforce** — on a confirmed match the owner is alerted and chooses **Allow** or **Remove**; refusal auto-files a DMCA-style takedown case with the blockchain evidence attached, tracked to `removed`/`rejected`.
 
 ## Architecture
+
+```text
+                 ┌────────────────────── Hikmaon ──────────────────────┐
+Social/Cloud ─▶ OAuth + Webhooks + Sync ─▶ Registration ─▶ Hikmalayer client ─▶ Hikmalayer
+platforms        (encrypted token vault)   hash + fingerprints          (separate project,
+                                           + Ed25519 certificate         hybrid PoW+PoS)
+Public web  ─▶ Autonomous crawler ─▶ Sighting index ─┐
+                                                      ▼
+Suspicious media ─▶ AI engine: % match (image/video/audio) + forensics + HikmaonNet
+                                                      ▼
+                          Incident ─▶ Owner consent (Allow / Remove)
+                                                      ▼
+                          Takedown case ─▶ DMCA notice + tracking ─▶ removed/rejected
+```
 
 | Layer | Where | Status |
 |---|---|---|
@@ -36,6 +78,23 @@ Hikmaon is a **blockchain-anchored digital authenticity and deepfake misuse dete
 | Consent + takedown workflow | `backend/app/services/takedown.py` | working |
 | Dashboard | `frontend/` | working |
 
+## API overview
+
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /api/auth/register` · `login` · `refresh` · `logout` · `GET /api/auth/me` |
+| Registration | `POST/GET /api/registrations` (auto-signed with the account key) |
+| Certificates | `GET /api/certificates/{media_id}` · `POST /api/certificates/verify` (public) |
+| Connectors | `POST/GET/DELETE /api/connectors` · `POST /api/connectors/ingest` · `POST /api/connectors/{id}/sync` |
+| OAuth | `GET /api/connectors/oauth/{provider}/start` · `/callback` · `GET /api/integrations/status` |
+| Webhooks | `GET/POST /api/webhooks/{provider}` (HMAC / shared-secret authenticated) |
+| Detection | `POST /api/analyze` · `POST /api/realtime/detect` · `POST /api/monitor/index` |
+| Crawler | `POST/GET /api/crawler/jobs` · `GET /api/crawler/jobs/{id}` |
+| Incidents | `GET /api/incidents` · `POST /api/incidents/{id}/decision` (Allow/Remove) |
+| Takedowns | `GET /api/takedowns` · `POST /api/takedowns/{id}/status` |
+| Evidence | `POST /api/verify` · `POST /api/evidence/{id}` · `GET/POST /api/notifications` |
+| Model | `GET /api/model/status` |
+
 ## Quick start
 
 ```bash
@@ -43,7 +102,7 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload           # API on :8000
-# open frontend/index.html in a browser
+# open frontend/index.html, create an account, and go
 ```
 
 Run tests (45 tests: auth, image/video/audio matching, forensics, certificates, crawler, integrations, full lifecycle):
@@ -66,10 +125,10 @@ Manifest format, dataset guidance (FaceForensics++, DFDC, Celeb-DF, diffusion se
 
 ## Documentation
 
-- **`docs/DEPLOYMENT.md`** — full deployment guide: server, model training→serving, Hikmalayer connection, per-platform OAuth activation, production checklist.
+- **`docs/DEPLOYMENT.md`** — full deployment guide: server, accounts, AV matching, crawler, model training→serving, Hikmalayer connection, per-platform OAuth activation, production checklist.
 - `docs/architecture.md` — technical target architecture.
-- `docs/deepfake_detection_assessment.md` — capability assessment and roadmap.
-- `docs/development_stages.md` — stage-by-stage build log.
+- `docs/deepfake_detection_assessment.md` — capability assessment, roadmap, and delivery status.
+- `docs/development_stages.md` — stage-by-stage build log (Stages 1–8).
 - `docs/Hikmaon Whitepaper v1.1.pdf` — whitepaper.
 
 ## Honest scope notes
@@ -78,4 +137,4 @@ Deepfake detection is an adversarial race; no system is perfect and anyone claim
 
 ---
 
-Hikmaon © Bestower Labs — Inventor: Muhammad Ayan Rao.
+Hikmaon © Bestower Labs Limited — Inventor: Muhammad Ayan Rao.

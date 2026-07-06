@@ -5,6 +5,26 @@
 
 ---
 
+## Delivery status update (2026-07-04)
+
+This assessment described the repository as it stood on 2026-07-02. Since then the roadmap has been executed (Stages 6–8 in `docs/development_stages.md`). Status against the priority table in §5:
+
+| Priority | Work item | Status |
+|---|---|---|
+| P0 | Similarity threshold + `no_match` path; fix tautological `blockchain_verified`; fix requirements | ✅ Done |
+| P0 | Authentication + key-ownership proof at registration | ✅ Done — Argon2id/JWT account system; per-user Ed25519 keys auto-sign every registration |
+| P1 | Real perceptual hashing + real embeddings | ✅ Done — images (pHash/dHash/embeddings), **video** (frame-hash temporal alignment), **audio** (Haitsma–Kalker fingerprints); vector DB still pending at scale |
+| P1 | Persistent storage | 🟡 JSON snapshot persistence done; Postgres/object/vector stores pending |
+| P2 | Production deepfake classifier + calibration + evaluation harness | 🟡 HikmaonNet architecture + train/eval/export/serving pipeline done; **GPU training on real datasets pending (team)** |
+| P2 | Hikmalayer RPC client + Certificate of Ownership | ✅ Done — RPC client with retries; Ed25519-signed certificates with verify endpoint |
+| P3 | C2PA signing/verification + invisible watermarking | ❌ Open |
+| P3 | Crawler + platform ingestion + takedown automation | ✅ Mostly done — autonomous robots.txt-compliant crawler with auto-incidents; OAuth/webhook/sync layer built (platform app credentials pending); takedown cases + DMCA notices generated (per-platform submission APIs pending) |
+| P4 | Learned fusion, explainability, signed evidence, human review queue | 🟡 Signal-level explanations + review band done; learned fusion and signed PDF evidence open |
+
+The remainder of this document is preserved as the original assessment.
+
+---
+
 ## 1. What this repository does today
 
 Hikmaon is a **blockchain-anchored digital authenticity and deepfake misuse detection platform**. The intended flow (per `README.md` and `docs/architecture.md`):
