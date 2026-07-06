@@ -1,5 +1,18 @@
 # Hikmaon Development Stages (Current Build)
 
+## Stage 8 — AV matching, autonomous crawler, and account system
+
+### What was done
+- **High-level video matching** (`app/av_fingerprint.py`): ffmpeg frame extraction (2 fps) + per-frame DCT pHash + temporal sequence alignment. Verified: a trimmed, downscaled, bitrate-crushed copy matches at 89.8% with the 2-second trim located by the alignment; unrelated video scores 17%.
+- **High-level audio matching**: Haitsma–Kalker spectral fingerprints (17 log-spaced bands, 512 ms windows, 32 ms hops, 16 bits/frame) matched by bit-error-rate with coarse-to-fine offset search. Verified: MP3-32k re-encode + 3 s trim matches at 81% (BER 0.09), volume-shifted at 86%, unrelated audio 13% (BER 0.43). Video soundtracks are fingerprinted too; frame-grab images match against video frames.
+- **Autonomous crawler** (`app/services/crawler.py`): robots.txt-compliant (TTL-cached per host), 1 req/s politeness, domain-scoped BFS with page/depth/size caps, DNS-resolving SSRF guard rejecting non-global addresses, media extraction from tags + OpenGraph, automatic fingerprint→index→match→incident pipeline, background jobs + optional scheduled re-crawls.
+- **Account system** (`app/auth.py`): Argon2id hashing, password policy, JWT access + rotating refresh tokens with reuse-detection family revocation, login throttling/lockout, per-user Ed25519 ownership keys auto-signing registrations, per-account data scoping across all endpoints, admin role.
+- Dashboard: login/register panel, session handling with auto-refresh, crawler panel.
+- Test suite grown to 45 (auth, AV matching, crawler with mocked sites, scoping).
+
+### What next
+- Register production OAuth apps; wire takedown submission APIs; Postgres + vector DB; train HikmaonNet.
+
 ## Stage 7 — HikmaonNet neural detector + platform API access
 
 ### What was done

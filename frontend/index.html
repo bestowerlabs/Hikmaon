@@ -62,12 +62,41 @@
     </header>
 
     <main>
+    <div class="grid" style="margin-bottom:1rem;">
+      <section class="card">
+        <div class="pill">Account</div>
+        <h3>Sign in to Hikmaon</h3>
+        <div id="authForms">
+          <input id="authEmail" type="email" placeholder="Email" autocomplete="username" />
+          <input id="authPassword" type="password" placeholder="Password (10+ chars, letters + digits)" autocomplete="current-password" />
+          <input id="authName" placeholder="Display name (for new accounts)" />
+          <div class="row" style="display:flex; gap:0.5rem;">
+            <button onclick="authLogin()">Log In</button>
+            <button class="secondary" onclick="authRegister()">Create Account</button>
+          </div>
+          <p class="muted">Argon2id password hashing · JWT sessions with rotating refresh tokens · every account receives an Ed25519 ownership key.</p>
+        </div>
+        <div id="authSession" style="display:none;">
+          <p><strong id="whoami"></strong></p>
+          <p class="muted">Ownership key: <code id="ownerKey"></code></p>
+          <button class="secondary" onclick="authLogout()">Log Out</button>
+        </div>
+      </section>
+      <section class="card">
+        <div class="pill">Autonomous Monitoring</div>
+        <h3>Web Crawler</h3>
+        <input id="crawlSeeds" placeholder="Seed URLs (comma-separated)" value="https://example.com" />
+        <input id="crawlMaxPages" type="number" placeholder="Max pages" value="50" />
+        <button onclick="startCrawl()">Start Crawl (robots.txt-compliant)</button>
+        <button class="secondary" onclick="listCrawlJobs()">Refresh Jobs</button>
+        <div id="crawlJobs"></div>
+      </section>
+    </div>
+
     <div class="grid">
       <section class="card">
         <div class="pill">Step 1 — Social + Cloud Accounts</div>
         <h3>Connect External Accounts</h3>
-        <input id="ownerId" placeholder="Owner ID" value="owner-01" />
-        <input id="ownerPub" placeholder="Owner Public Key" value="pubkey_owner_123456" />
         <select id="provider">
           <option value="instagram">Instagram</option>
           <option value="facebook">Facebook</option>

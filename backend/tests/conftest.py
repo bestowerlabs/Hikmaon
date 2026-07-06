@@ -43,3 +43,34 @@ def make_photo():
 @pytest.fixture
 def to_bytes():
     return image_bytes
+
+
+@pytest.fixture
+def make_user():
+    """Register a fresh account and return (auth headers, user dict)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+
+    def _create(role_admin_first: bool = False):
+        import uuid as _uuid
+
+        email = f"user_{_uuid.uuid4().hex[:10]}@test.hikmaon"
+        response = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "Str0ngPassw0rd!", "display_name": "Test User"},
+        )
+        assert response.status_code == 201, response.text
+        tokens = response.json()
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        return headers, tokens["user"], tokens
+
+    return _create
+
+
+@pytest.fixture
+def auth_headers(make_user):
+    headers, _user, _tokens = make_user()
+    return headers
