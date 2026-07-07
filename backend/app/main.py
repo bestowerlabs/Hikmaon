@@ -93,6 +93,9 @@ class NotifyRequest(BaseModel):
 def health() -> dict[str, str]:
     return {"status": "ok", "chain_mode": chain_client.chain_mode}
 
+@app.get("/")
+def index() -> dict:
+    return {"message": "Welcome to the Hikmaon API"}
 
 # ---------------------------------------------------------------- registration
 
