@@ -115,13 +115,28 @@ cd backend && PYTHONPATH=. pytest
 
 ```bash
 pip install -r ml/requirements.txt
+
+# 0) Build the manifest from your dataset folders (generates /data/manifest.csv).
+#    Frames of one video never leak across splits; --holdout keeps a generator
+#    out of training so its test AUC measures true generalization.
+python -m ml.make_manifest \
+    --real /data/ffpp/real --real /data/celebdf/real \
+    --fake deepfakes=/data/ffpp/deepfakes \
+    --fake face2face=/data/ffpp/face2face \
+    --fake celebdf=/data/celebdf/fake \
+    --holdout celebdf \
+    --out /data/manifest.csv
+
+# 1-3) Train, evaluate + calibrate, export
 python -m ml.train    --manifest /data/manifest.csv --out runs/v1 --epochs 30
 python -m ml.evaluate --manifest /data/manifest.csv --checkpoint runs/v1/best.pt --split test --fit-temperature
 python -m ml.export   --checkpoint runs/v1/best.pt --out hikmaonnet.onnx
+
+# 4) Deploy
 HIKMAON_MODEL_PATH=hikmaonnet.onnx uvicorn app.main:app
 ```
 
-Manifest format, dataset guidance (FaceForensics++, DFDC, Celeb-DF, diffusion sets), and the cross-generator evaluation discipline are documented in `backend/ml/data.py` and `docs/DEPLOYMENT.md`.
+Manifest format, dataset guidance (FaceForensics++, DFDC, Celeb-DF, diffusion sets), and the cross-generator evaluation discipline are documented in `backend/ml/make_manifest.py`, `backend/ml/data.py`, and `docs/DEPLOYMENT.md`.
 
 ## Documentation
 
