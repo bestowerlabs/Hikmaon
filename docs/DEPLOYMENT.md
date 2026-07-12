@@ -64,8 +64,24 @@ the API server only ever loads the exported ONNX file.
 
 ### 2.1 Prepare data
 Build face-crop frame datasets from FaceForensics++ (c23 **and** c40), DFDC,
-Celeb-DF v2, DeeperForensics, plus current diffusion-generated sets, and
-write a manifest CSV (format documented in `ml/data.py`):
+Celeb-DF v2, DeeperForensics, plus current diffusion-generated sets, then
+generate the manifest with the bundled tool:
+
+```bash
+python -m ml.make_manifest \
+    --real /data/ffpp/real --real /data/celebdf/real \
+    --fake deepfakes=/data/ffpp/deepfakes \
+    --fake face2face=/data/ffpp/face2face \
+    --fake neuraltextures=/data/ffpp/neuraltextures \
+    --fake celebdf=/data/celebdf/fake \
+    --holdout celebdf \
+    --val 0.1 --test 0.1 \
+    --out /data/manifest.csv
+```
+
+The tool guarantees frames from one source video never span two splits (no
+leakage), keeps splits deterministic as the dataset grows, and prints a
+per-generator split summary. Resulting CSV format (`ml/data.py`):
 
 ```csv
 path,label,generator,split
@@ -74,8 +90,8 @@ path,label,generator,split
 /data/celebdf/fake/x/f01.png,1,celebdf,val
 ```
 
-**Hold at least one generator out of train entirely** — its val/test AUC is
-your generalization number, and the one to gate releases on.
+**Hold at least one generator out of train entirely** (`--holdout`) — its
+val/test AUC is your generalization number, and the one to gate releases on.
 
 ### 2.2 Train
 ```bash
