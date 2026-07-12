@@ -36,6 +36,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app import net_guard
 from app.models import CrawlJob, CrawlJobCreate
 from app.storage import InMemoryStore
 
@@ -143,7 +144,7 @@ class CrawlerService:
         try:
             async with httpx.AsyncClient(
                 headers={"User-Agent": USER_AGENT},
-                follow_redirects=True,
+                follow_redirects=False,  # redirects are followed manually + re-validated (SSRF guard)
                 timeout=PAGE_TIMEOUT,
             ) as client:
                 await self._crawl(client, job)
@@ -171,8 +172,8 @@ class CrawlerService:
 
             await self._be_polite(url)
             try:
-                response = await client.get(url)
-            except httpx.HTTPError as exc:
+                response = await self._safe_get(client, url)
+            except (httpx.HTTPError, net_guard.UnsafeURLError) as exc:
                 job.errors.append(f"{url}: {exc}"[:200])
                 continue
             if response.status_code != 200:
@@ -215,8 +216,8 @@ class CrawlerService:
                 return
             await self._be_polite(media_url)
             try:
-                response = await client.get(media_url)
-            except httpx.HTTPError:
+                response = await self._safe_get(client, media_url)
+            except (httpx.HTTPError, net_guard.UnsafeURLError):
                 return
             if response.status_code != 200 or len(response.content) > MAX_MEDIA_BYTES:
                 return
@@ -249,15 +250,20 @@ class CrawlerService:
         else:
             robots = robotparser.RobotFileParser()
             try:
-                response = await client.get(f"{origin}/robots.txt")
+                response = await self._safe_get(client, f"{origin}/robots.txt")
                 if response.status_code == 200:
                     robots.parse(response.text.splitlines())
                 else:
                     robots.parse([])  # no robots.txt -> allowed
-            except httpx.HTTPError:
+            except (httpx.HTTPError, net_guard.UnsafeURLError):
                 robots.parse([])
             self._robots[origin] = (time.time(), robots)
         return robots.can_fetch(USER_AGENT, url)
+
+    async def _safe_get(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        """Fetch with redirects followed manually and every hop re-validated
+        against the public-host guard (SSRF protection)."""
+        return await net_guard.safe_get_async(client, url, url_validator=_url_allowed)
 
     async def _be_polite(self, url: str) -> None:
         host = urlparse(url).netloc

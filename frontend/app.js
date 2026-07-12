@@ -39,6 +39,15 @@ function output(data) {
   document.getElementById('output').textContent = JSON.stringify(data, null, 2);
 }
 
+// Escape any server-provided value before interpolating it into innerHTML.
+// Fields like crawl seed URLs, matched URLs, and takedown targets can contain
+// attacker-influenced content; unescaped they would be a stored-DOM-XSS sink.
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 async function request(path, payload, method = 'POST', retried = false) {
   const headers = { 'Content-Type': 'application/json' };
   const { access } = tokens();
@@ -292,10 +301,10 @@ async function listCrawlJobs() {
       const div = document.createElement('div');
       div.className = 'incident';
       div.innerHTML = `
-        <span class="status ${job.status === 'completed' ? 'closed' : ''}">${job.status}</span>
-        <div><strong>${job.job_id}</strong></div>
-        <div class="muted">${job.seed_urls.join(', ')}</div>
-        <div class="muted">pages ${job.pages_crawled} · media ${job.media_indexed} · matches ${job.matches_found}</div>`;
+        <span class="status ${job.status === 'completed' ? 'closed' : ''}">${esc(job.status)}</span>
+        <div><strong>${esc(job.job_id)}</strong></div>
+        <div class="muted">${job.seed_urls.map(esc).join(', ')}</div>
+        <div class="muted">pages ${esc(job.pages_crawled)} · media ${esc(job.media_indexed)} · matches ${esc(job.matches_found)}</div>`;
       container.appendChild(div);
     }
   } catch (err) {
@@ -314,14 +323,14 @@ async function listIncidents() {
       div.className = 'incident';
       const canDecide = incident.status === 'pending_owner_review';
       div.innerHTML = `
-        <span class="status ${incident.status}">${incident.status}</span>
-        <div class="pct">${incident.match_percentage}% match</div>
-        <div class="muted">Incident ${incident.incident_id} · forensics: ${incident.manipulation_verdict}
-          · chain verified: ${incident.blockchain_verified}</div>
-        <div class="muted">URLs: ${incident.matched_urls.join(', ') || '—'}</div>
+        <span class="status ${esc(incident.status)}">${esc(incident.status)}</span>
+        <div class="pct">${esc(incident.match_percentage)}% match</div>
+        <div class="muted">Incident ${esc(incident.incident_id)} · forensics: ${esc(incident.manipulation_verdict)}
+          · chain verified: ${esc(incident.blockchain_verified)}</div>
+        <div class="muted">URLs: ${incident.matched_urls.map(esc).join(', ') || '—'}</div>
         ${canDecide ? `<div class="row">
-          <button class="allow" onclick="decide('${incident.incident_id}','allow')">Allow</button>
-          <button class="remove" onclick="decide('${incident.incident_id}','remove')">Remove</button>
+          <button class="allow" onclick="decide('${esc(incident.incident_id)}','allow')">Allow</button>
+          <button class="remove" onclick="decide('${esc(incident.incident_id)}','remove')">Remove</button>
         </div>` : ''}`;
       container.appendChild(div);
     }
@@ -350,9 +359,9 @@ async function listTakedowns() {
       const div = document.createElement('div');
       div.className = 'incident';
       div.innerHTML = `
-        <span class="status ${item.status}">${item.status}</span>
-        <div><strong>${item.case_id}</strong></div>
-        <div class="muted">Targets: ${item.target_urls.join(', ')}</div>`;
+        <span class="status ${esc(item.status)}">${esc(item.status)}</span>
+        <div><strong>${esc(item.case_id)}</strong></div>
+        <div class="muted">Targets: ${item.target_urls.map(esc).join(', ')}</div>`;
       const noticeButton = document.createElement('button');
       noticeButton.className = 'secondary';
       noticeButton.textContent = 'View DMCA Notice';
