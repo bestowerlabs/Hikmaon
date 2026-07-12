@@ -124,7 +124,10 @@ class AuthService:
             password_hash=self.hasher.hash(password),
             owner_public_key=public_key_b64,
             signing_key_ciphertext=key_ciphertext,
-            role="admin" if not self.store.users else "owner",
+            # Admin (global visibility) is only auto-granted to the first
+            # account when explicitly opted in — otherwise a public deployment
+            # would hand admin to whoever registers first.
+            role="admin" if (not self.store.users and os.environ.get("HIKMAON_BOOTSTRAP_ADMIN") == "1") else "owner",
             created_at=datetime.now(tz=timezone.utc),
         )
         self.store.users[user.user_id] = user

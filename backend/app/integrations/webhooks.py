@@ -33,6 +33,7 @@ import os
 
 import httpx
 
+from app import net_guard
 from app.integrations.providers import PROVIDERS
 from app.models import ConnectorIngestEvent
 from app.storage import InMemoryStore
@@ -128,8 +129,8 @@ class WebhookService:
 
     def _download(self, url: str) -> bytes | None:
         try:
-            response = httpx.get(url, follow_redirects=True, timeout=30.0)
+            response = net_guard.safe_get(url)
             response.raise_for_status()
             return response.content
-        except httpx.HTTPError:
+        except (httpx.HTTPError, net_guard.UnsafeURLError):
             return None

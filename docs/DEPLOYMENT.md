@@ -38,13 +38,14 @@ or pin state-mutating routes to one instance.
 | Variable | Default | Purpose |
 |---|---|---|
 | `HIKMAON_JWT_SECRET` | auto-generated | HMAC secret for access tokens. **Set from a secrets manager in production** |
+| `HIKMAON_BOOTSTRAP_ADMIN` | *(unset)* | Set to `1` only while creating the first admin account, then unset. Without it, all accounts are scoped `owner` (no global visibility) — safe default for public deployments |
 | `HIKMAON_FFMPEG` | auto-detected | ffmpeg binary path (falls back to PATH, then the `imageio-ffmpeg` bundled binary) for video/audio fingerprinting |
 | `HIKMAON_CRAWLER_SEEDS` | *(unset)* | Comma-separated seed URLs for the autonomous crawl schedule |
 | `HIKMAON_CRAWLER_INTERVAL_MINUTES` | `0` (off) | Re-crawl the seeds on this interval |
 | `HIKMAON_DATA_DIR` | `data` | Persistence directory (state snapshot + signing key + auth secret) |
 | `HIKMAON_SIGNING_KEY` | auto-generated | Hex seed of the Ed25519 certificate-issuing key. **Set explicitly in production and back it up** — certificates verify against this key |
 | `HIKMALAYER_RPC_URL` | *(unset)* | Real Hikmalayer node URL. Unset = local dev ledger, labelled `dev-simulated` |
-| `HIKMAON_MODEL_PATH` | *(unset)* | Path to the exported `hikmaonnet.onnx`. Unset = heuristics only |
+| `HIKMAON_MODEL_PATH` | *(unset)* | Path to the exported `hikmaonnet.onnx`. Unset = heuristics only. When set, the detector scores still images (with horizontal-flip test-time augmentation) **and video** (frames sampled, clip score = 80th percentile of frame scores) |
 | `HIKMAON_MATCH_THRESHOLD` | `55` | Confirmed-match % (opens incident + alerts owner) |
 | `HIKMAON_REVIEW_THRESHOLD` | `35` | Possible-match % (queued for review, no alert) |
 | `HIKMAON_REQUIRE_OWNERSHIP_PROOF` | `0` | `1` = registrations must include an Ed25519 signature over the content hash |
