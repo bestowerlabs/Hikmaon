@@ -26,15 +26,22 @@ class RegistrationService:
         store: InMemoryStore,
         chain_client: HikmalayerClient,
         certificate_service: CertificateService,
+        auto_signer=None,
     ) -> None:
         self.store = store
         self.chain_client = chain_client
         self.certificate_service = certificate_service
+        # auto_signer(owner_id, content_hash) -> signature_b64 | None. Lets the
+        # account system sign registrations with the owner's key automatically.
+        self.auto_signer = auto_signer
         self.require_ownership_proof = os.environ.get("HIKMAON_REQUIRE_OWNERSHIP_PROOF", "0") == "1"
 
     def register_media(self, payload: RegistrationCreate) -> RegistrationRecord:
         raw_bytes = base64.b64decode(payload.content_b64.encode("utf-8"))
         content_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+        if not payload.ownership_signature_b64 and self.auto_signer is not None:
+            payload.ownership_signature_b64 = self.auto_signer(payload.owner_id, content_hash)
 
         ownership_proven = self._verify_ownership_proof(payload, content_hash)
         if self.require_ownership_proof and not ownership_proven:
@@ -65,6 +72,8 @@ class RegistrationService:
             dhash_hex=fingerprint.dhash_hex,
             chunk_fingerprints=fingerprint.chunks,
             embedding=fingerprint.embedding,
+            frame_phashes=fingerprint.frame_phashes,
+            audio_bits=fingerprint.audio_bits,
             metadata=payload.metadata,
             blockchain_txid=tx.txid,
             chain_mode=tx.chain_mode,

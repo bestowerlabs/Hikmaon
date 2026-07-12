@@ -1,5 +1,13 @@
 # Hikmaon Technical Architecture Specification
 
+> **Implementation status:** this document is the original *target* architecture.
+> The current implementation (Stages 1–8, see `development_stages.md`) covers
+> Modules 1–7 with working code: perceptual image/video/audio matching,
+> forensic + neural manipulation analysis, Hikmalayer client + ownership
+> certificates, autonomous crawler, OAuth/webhook connectors, accounts, and
+> the consent-driven takedown workflow. Deltas from this spec are tracked in
+> `deepfake_detection_assessment.md` (delivery status table).
+
 ## 1) Technical Definition
 
 Hikmaon is a blockchain-anchored digital authenticity and deepfake misuse detection platform.

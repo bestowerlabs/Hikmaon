@@ -37,7 +37,11 @@ or pin state-mutating routes to one instance.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HIKMAON_DATA_DIR` | `data` | Persistence directory (state snapshot + signing key) |
+| `HIKMAON_JWT_SECRET` | auto-generated | HMAC secret for access tokens. **Set from a secrets manager in production** |
+| `HIKMAON_FFMPEG` | auto-detected | ffmpeg binary path (falls back to PATH, then the `imageio-ffmpeg` bundled binary) for video/audio fingerprinting |
+| `HIKMAON_CRAWLER_SEEDS` | *(unset)* | Comma-separated seed URLs for the autonomous crawl schedule |
+| `HIKMAON_CRAWLER_INTERVAL_MINUTES` | `0` (off) | Re-crawl the seeds on this interval |
+| `HIKMAON_DATA_DIR` | `data` | Persistence directory (state snapshot + signing key + auth secret) |
 | `HIKMAON_SIGNING_KEY` | auto-generated | Hex seed of the Ed25519 certificate-issuing key. **Set explicitly in production and back it up** — certificates verify against this key |
 | `HIKMALAYER_RPC_URL` | *(unset)* | Real Hikmalayer node URL. Unset = local dev ledger, labelled `dev-simulated` |
 | `HIKMAON_MODEL_PATH` | *(unset)* | Path to the exported `hikmaonnet.onnx`. Unset = heuristics only |
@@ -60,8 +64,24 @@ the API server only ever loads the exported ONNX file.
 
 ### 2.1 Prepare data
 Build face-crop frame datasets from FaceForensics++ (c23 **and** c40), DFDC,
-Celeb-DF v2, DeeperForensics, plus current diffusion-generated sets, and
-write a manifest CSV (format documented in `ml/data.py`):
+Celeb-DF v2, DeeperForensics, plus current diffusion-generated sets, then
+generate the manifest with the bundled tool:
+
+```bash
+python -m ml.make_manifest \
+    --real /data/ffpp/real --real /data/celebdf/real \
+    --fake deepfakes=/data/ffpp/deepfakes \
+    --fake face2face=/data/ffpp/face2face \
+    --fake neuraltextures=/data/ffpp/neuraltextures \
+    --fake celebdf=/data/celebdf/fake \
+    --holdout celebdf \
+    --val 0.1 --test 0.1 \
+    --out /data/manifest.csv
+```
+
+The tool guarantees frames from one source video never span two splits (no
+leakage), keeps splits deterministic as the dataset grows, and prints a
+per-generator split summary. Resulting CSV format (`ml/data.py`):
 
 ```csv
 path,label,generator,split
@@ -70,8 +90,8 @@ path,label,generator,split
 /data/celebdf/fake/x/f01.png,1,celebdf,val
 ```
 
-**Hold at least one generator out of train entirely** — its val/test AUC is
-your generalization number, and the one to gate releases on.
+**Hold at least one generator out of train entirely** (`--holdout`) — its
+val/test AUC is your generalization number, and the one to gate releases on.
 
 ### 2.2 Train
 ```bash
@@ -158,6 +178,32 @@ Snapchat has no consumer content-read API — that provider requires the
 on-device attestation plug-in path described in the patent.
 
 ---
+
+## 4.5 Accounts, video/audio matching, and the crawler
+
+**Accounts** — users register/login at `/api/auth/register` and `/api/auth/login`
+(Argon2id hashing, JWT access tokens, rotating refresh tokens with reuse
+detection, lockout after 5 failed attempts). Every account is issued an
+Ed25519 ownership keypair; registrations are signed with it automatically
+(`ownership_proven: true`). All API data is scoped to the authenticated
+account; the first registered account gets the `admin` role.
+
+**Video/audio matching** — requires ffmpeg, which installs automatically via
+the `imageio-ffmpeg` dependency (or set `HIKMAON_FFMPEG`). Video identity is
+a sequence of per-frame perceptual hashes matched by temporal alignment
+(re-encodes, downscales, and trims match; the offset reports where the clip
+was cut). Audio uses Haitsma–Kalker spectral fingerprints matched by
+bit-error-rate (canonical decision line BER < 0.35); video soundtracks are
+fingerprinted too.
+
+**Crawler** — `POST /api/crawler/jobs {"seed_urls": [...], "max_pages": 50}`
+starts a background crawl scoped to the seed domains: robots.txt respected
+per host, 1 req/s politeness, page/media size caps, and an SSRF guard that
+DNS-resolves every host and refuses non-global addresses. Discovered media
+is fingerprinted, indexed as a public sighting, and matched against all
+registrations — matches open incidents through the standard consent
+workflow. For continuous autonomous monitoring set `HIKMAON_CRAWLER_SEEDS`
+and `HIKMAON_CRAWLER_INTERVAL_MINUTES`.
 
 ## 5. Production checklist
 

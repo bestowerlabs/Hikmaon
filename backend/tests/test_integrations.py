@@ -17,22 +17,16 @@ def test_integrations_status_lists_all_providers():
         assert "required_env" in entry and len(entry["required_env"]) == 2
 
 
-def test_oauth_start_unconfigured_returns_setup_instructions():
-    response = client.get(
-        "/api/connectors/oauth/instagram/start",
-        params={"owner_id": "owner-x", "owner_public_key": "pubkey_x_123456"},
-    )
+def test_oauth_start_unconfigured_returns_setup_instructions(auth_headers):
+    response = client.get("/api/connectors/oauth/instagram/start", headers=auth_headers)
     assert response.status_code == 501
     assert "HIKMAON_INSTAGRAM_CLIENT_ID" in response.json()["detail"]
 
 
-def test_oauth_start_configured_builds_pkce_authorization_url(monkeypatch):
+def test_oauth_start_configured_builds_pkce_authorization_url(monkeypatch, auth_headers):
     monkeypatch.setenv("HIKMAON_DROPBOX_CLIENT_ID", "client-abc")
     monkeypatch.setenv("HIKMAON_DROPBOX_CLIENT_SECRET", "secret-xyz")
-    response = client.get(
-        "/api/connectors/oauth/dropbox/start",
-        params={"owner_id": "owner-x", "owner_public_key": "pubkey_x_123456"},
-    )
+    response = client.get("/api/connectors/oauth/dropbox/start", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     url = data["authorization_url"]
@@ -42,11 +36,8 @@ def test_oauth_start_configured_builds_pkce_authorization_url(monkeypatch):
     assert data["state"]
 
 
-def test_oauth_unknown_provider_404():
-    response = client.get(
-        "/api/connectors/oauth/myspace/start",
-        params={"owner_id": "owner-x", "owner_public_key": "pubkey_x_123456"},
-    )
+def test_oauth_unknown_provider_404(auth_headers):
+    response = client.get("/api/connectors/oauth/myspace/start", headers=auth_headers)
     assert response.status_code == 404
 
 
@@ -71,17 +62,13 @@ def test_webhook_post_requires_authentication():
     assert response.status_code == 403
 
 
-def test_webhook_event_registers_media(monkeypatch, make_photo, to_bytes):
+def test_webhook_event_registers_media(monkeypatch, auth_headers, make_photo, to_bytes):
     monkeypatch.setenv("HIKMAON_WEBHOOK_SHARED_SECRET", "hook-secret")
 
     connected = client.post(
         "/api/connectors",
-        json={
-            "owner_id": "owner-hook",
-            "owner_public_key": "pubkey_hook_123456",
-            "provider": "instagram",
-            "account_handle": "@hooked",
-        },
+        json={"provider": "instagram", "account_handle": "@hooked"},
+        headers=auth_headers,
     ).json()
 
     media = to_bytes(make_photo(91))

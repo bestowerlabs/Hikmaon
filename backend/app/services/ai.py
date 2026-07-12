@@ -117,15 +117,25 @@ class AIService:
 
     def _matched_urls(self, probe, match: MatchResult) -> list[str]:
         """Public-index URLs whose fingerprints are perceptually close to the probe."""
+        from app.perceptual import MediaFingerprint
+
         urls = []
         for item in self.store.crawler_index:
-            if probe.media_kind == "image" and item.get("phash_hex"):
-                similarity = hash_similarity(int(probe.phash_hex, 16), int(item["phash_hex"], 16))
-                if similarity >= 0.85:
-                    urls.append(item["url"])
-            elif item.get("content_hash") and probe.chunks:
-                if set(item.get("chunks", [])) & set(probe.chunks):
-                    urls.append(item["url"])
+            item_fp = MediaFingerprint(
+                media_kind=item.get("media_kind", "binary"),
+                phash_hex=item.get("phash_hex"),
+                dhash_hex=item.get("dhash_hex"),
+                embedding=item.get("embedding", []),
+                chunks=item.get("chunks", []),
+                frame_phashes=item.get("frame_phashes", []),
+                audio_bits=item.get("audio_bits", []),
+            )
+            try:
+                scores = match_percentage(probe, item_fp)
+            except (TypeError, ValueError):
+                continue
+            if scores["match_percentage"] >= 65.0:
+                urls.append(item["url"])
         return urls
 
 
@@ -138,4 +148,6 @@ def _registration_fingerprint(registration):
         dhash_hex=registration.dhash_hex,
         embedding=registration.embedding,
         chunks=registration.chunk_fingerprints,
+        frame_phashes=registration.frame_phashes,
+        audio_bits=registration.audio_bits,
     )

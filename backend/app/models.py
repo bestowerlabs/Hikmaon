@@ -32,8 +32,10 @@ TakedownStatus = Literal["open", "reported", "removed", "rejected"]
 
 
 class RegistrationCreate(BaseModel):
-    owner_id: str = Field(min_length=3)
-    owner_public_key: str = Field(min_length=8)
+    # Owner identity is normally derived from the authenticated account;
+    # explicit values are accepted only together with an ownership signature.
+    owner_id: str = Field(default="", max_length=64)
+    owner_public_key: str = Field(default="", max_length=128)
     media_type: MediaType
     filename: str
     content_b64: str = Field(description="Base64-encoded media bytes")
@@ -52,11 +54,13 @@ class RegistrationRecord(BaseModel):
     filename: str
     content_hash: str
     fingerprint_commitment: str
-    media_kind: str  # "image" | "binary" — what the perceptual engine decoded
+    media_kind: str  # "image" | "video" | "audio" | "binary" — what the engine decoded
     phash_hex: str | None = None
     dhash_hex: str | None = None
     chunk_fingerprints: list[str] = Field(default_factory=list)
     embedding: list[float] = Field(default_factory=list)
+    frame_phashes: list[str] = Field(default_factory=list)
+    audio_bits: list[int] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     blockchain_txid: str
     chain_mode: str
@@ -129,8 +133,9 @@ class EvidenceReport(BaseModel):
 
 
 class ConnectorAccountCreate(BaseModel):
-    owner_id: str
-    owner_public_key: str
+    # Owner identity is derived from the authenticated account.
+    owner_id: str = ""
+    owner_public_key: str = ""
     provider: ProviderType
     account_handle: str
 
@@ -211,3 +216,53 @@ class OwnershipCertificate(BaseModel):
 
 class CertificateVerifyRequest(BaseModel):
     certificate: dict[str, Any]
+
+
+class UserAccount(BaseModel):
+    user_id: str
+    email: str
+    display_name: str
+    password_hash: str
+    owner_public_key: str
+    signing_key_ciphertext: str
+    role: Literal["admin", "owner"] = "owner"
+    created_at: datetime
+
+
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class TokenRefresh(BaseModel):
+    refresh_token: str
+
+
+class CrawlJobCreate(BaseModel):
+    seed_urls: list[str] = Field(min_length=1, max_length=20)
+    allowed_domains: list[str] = Field(default_factory=list)
+    max_pages: int = Field(default=50, ge=1, le=500)
+    max_depth: int = Field(default=2, ge=0, le=4)
+
+
+class CrawlJob(BaseModel):
+    job_id: str
+    owner_user_id: str
+    seed_urls: list[str]
+    allowed_domains: list[str]
+    max_pages: int
+    max_depth: int
+    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    pages_crawled: int = 0
+    media_indexed: int = 0
+    matches_found: int = 0
+    incidents: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    created_at: datetime
+    finished_at: datetime | None = None

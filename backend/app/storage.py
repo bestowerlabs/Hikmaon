@@ -8,12 +8,14 @@ from pathlib import Path
 
 from app.models import (
     ConnectorAccount,
+    CrawlJob,
     EvidenceReport,
     IncidentRecord,
     NotificationRecord,
     OwnershipCertificate,
     RegistrationRecord,
     TakedownCase,
+    UserAccount,
 )
 
 DEFAULT_DATA_DIR = Path(os.environ.get("HIKMAON_DATA_DIR", "data"))
@@ -38,6 +40,9 @@ class InMemoryStore:
     incidents: dict[str, IncidentRecord] = field(default_factory=dict)
     takedown_cases: dict[str, TakedownCase] = field(default_factory=dict)
     certificates: dict[str, OwnershipCertificate] = field(default_factory=dict)
+    users: dict[str, UserAccount] = field(default_factory=dict)
+    refresh_tokens: dict[str, dict] = field(default_factory=dict)
+    crawl_jobs: dict[str, CrawlJob] = field(default_factory=dict)
     data_dir: Path | None = None
 
     def persist(self) -> None:
@@ -54,6 +59,9 @@ class InMemoryStore:
             "incidents": {k: v.model_dump(mode="json") for k, v in self.incidents.items()},
             "takedown_cases": {k: v.model_dump(mode="json") for k, v in self.takedown_cases.items()},
             "certificates": {k: v.model_dump(mode="json") for k, v in self.certificates.items()},
+            "users": {k: v.model_dump(mode="json") for k, v in self.users.items()},
+            "refresh_tokens": self.refresh_tokens,
+            "crawl_jobs": {k: v.model_dump(mode="json") for k, v in self.crawl_jobs.items()},
         }
         target = self.data_dir / "hikmaon_store.json"
         fd, tmp_path = tempfile.mkstemp(dir=self.data_dir, suffix=".tmp")
@@ -84,4 +92,7 @@ class InMemoryStore:
         store.incidents = {k: IncidentRecord(**v) for k, v in raw.get("incidents", {}).items()}
         store.takedown_cases = {k: TakedownCase(**v) for k, v in raw.get("takedown_cases", {}).items()}
         store.certificates = {k: OwnershipCertificate(**v) for k, v in raw.get("certificates", {}).items()}
+        store.users = {k: UserAccount(**v) for k, v in raw.get("users", {}).items()}
+        store.refresh_tokens = raw.get("refresh_tokens", {})
+        store.crawl_jobs = {k: CrawlJob(**v) for k, v in raw.get("crawl_jobs", {}).items()}
         return store
