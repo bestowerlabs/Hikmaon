@@ -146,6 +146,7 @@ class CrawlerService:
                 headers={"User-Agent": USER_AGENT},
                 follow_redirects=False,  # redirects are followed manually + re-validated (SSRF guard)
                 timeout=PAGE_TIMEOUT,
+                transport=net_guard.pinned_async_transport(),  # pin to validated IPs (anti DNS-rebind)
             ) as client:
                 await self._crawl(client, job)
             job.status = "completed"

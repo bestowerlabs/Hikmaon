@@ -16,6 +16,8 @@ from __future__ import annotations
 import base64
 import os
 
+import numpy as np
+
 from app.forensics import FORENSICS_VERSION, analyze_image_bytes
 from app.models import AnalysisReport, MatchResult, OwnershipResult
 from app.services.model_serving import DeepfakeModelServer
@@ -41,6 +43,8 @@ class AIService:
         self.model_server = model_server or DeepfakeModelServer()
         self.match_threshold = float(os.environ.get("HIKMAON_MATCH_THRESHOLD", DEFAULT_MATCH_THRESHOLD))
         self.review_threshold = float(os.environ.get("HIKMAON_REVIEW_THRESHOLD", DEFAULT_REVIEW_THRESHOLD))
+        self._img_index: tuple | None = None
+        self._img_index_key: int = -1
 
     def analyze(self, suspicious_media_id: str, media_bytes_b64: str) -> AnalysisReport:
         raw_bytes = base64.b64decode(media_bytes_b64.encode("utf-8"))
@@ -66,6 +70,47 @@ class AIService:
             },
         )
 
+    def _image_index(self) -> tuple:
+        """Cached numpy arrays of image registrations for vectorized scoring.
+        Rebuilt when the registration count changes (registrations are
+        append-only, so the count is a sufficient cache key)."""
+        key = len(self.store.registrations)
+        if self._img_index_key == key and self._img_index is not None:
+            return self._img_index
+        regs = [r for r in self.store.registrations.values() if r.media_kind == "image" and r.phash_hex]
+        if regs:
+            phash = np.array([int(r.phash_hex, 16) for r in regs], dtype=np.uint64)
+            dhash = np.array([int(r.dhash_hex, 16) for r in regs], dtype=np.uint64)
+            emb = np.array([r.embedding for r in regs], dtype=np.float64)
+            emb /= np.linalg.norm(emb, axis=1, keepdims=True) + 1e-8
+            index = (regs, phash, dhash, emb)
+        else:
+            index = ([], None, None, None)
+        self._img_index, self._img_index_key = index, key
+        return index
+
+    def _best_image_registration(self, probe):
+        """Exact image-vs-image best match, vectorized (same formula as
+        perceptual._match_images). Returns (registration, percentage) or None."""
+        regs, phash, dhash, emb = self._image_index()
+        if not regs:
+            return None
+        probe_p = np.uint64(int(probe.phash_hex, 16))
+        probe_d = np.uint64(int(probe.dhash_hex, 16))
+        probe_e = np.asarray(probe.embedding, dtype=np.float64)
+        probe_e /= np.linalg.norm(probe_e) + 1e-8
+
+        p_sim = 1.0 - np.bitwise_count(phash ^ probe_p) / 64.0
+        d_sim = 1.0 - np.bitwise_count(dhash ^ probe_d) / 64.0
+        e_sim = emb @ probe_e
+        combined = (
+            0.45 * np.clip((p_sim - 0.5) / 0.5, 0, 1)
+            + 0.20 * np.clip((d_sim - 0.5) / 0.5, 0, 1)
+            + 0.35 * np.clip((e_sim - 0.4) / 0.6, 0, 1)
+        )
+        best = int(np.argmax(combined))
+        return regs[best], round(100.0 * float(combined[best]), 1)
+
     def _find_best_match(self, probe) -> MatchResult:
         if not self.store.registrations:
             return MatchResult(
@@ -77,9 +122,20 @@ class AIService:
 
         best_scores: dict | None = None
         best_registration = None
+
+        # Fast path: image probe vs image registrations, scored in one
+        # vectorized pass instead of a per-registration Python loop.
+        if probe.media_kind == "image":
+            fast = self._best_image_registration(probe)
+            if fast is not None:
+                best_registration, best_pct = fast
+                best_scores = match_percentage(probe, _registration_fingerprint(best_registration))
+
+        # Remaining pairs (video/audio/binary, and cross-kind) — typically few.
         for registration in self.store.registrations.values():
-            reg_fp = _registration_fingerprint(registration)
-            scores = match_percentage(probe, reg_fp)
+            if probe.media_kind == "image" and registration.media_kind == "image":
+                continue  # handled by the vectorized fast path
+            scores = match_percentage(probe, _registration_fingerprint(registration))
             if best_scores is None or scores["match_percentage"] > best_scores["match_percentage"]:
                 best_scores = scores
                 best_registration = registration

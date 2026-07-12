@@ -22,6 +22,8 @@ import socket
 from urllib.parse import urlparse
 
 import httpx
+from httpcore._backends.anyio import AnyIOBackend
+from httpcore._backends.sync import SyncBackend
 
 MAX_REDIRECTS = 5
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
@@ -46,6 +48,57 @@ def host_is_public(hostname: str) -> bool:
     return True
 
 
+# --------------------------------------------------------------------------- #
+# DNS-rebinding defense: pin the socket to an address we validated.
+#
+# host_is_public/url_is_allowed run at *check* time; the OS re-resolves at
+# *connect* time, so a low-TTL attacker domain could rebind to an internal IP
+# in between. These backends resolve once, reject if any address is non-public,
+# and connect to that exact validated IP — closing the rebind window. TLS is
+# untouched: httpcore still passes the original hostname as SNI / for cert
+# verification, so certificates validate normally.
+# --------------------------------------------------------------------------- #
+def _validated_ip(host: str, port: int) -> str:
+    try:
+        infos = socket.getaddrinfo(host, port)
+    except socket.gaierror as exc:
+        raise UnsafeURLError(f"cannot resolve {host}") from exc
+    addresses = [info[4][0] for info in infos]
+    if not addresses or any(not ipaddress.ip_address(ip).is_global for ip in addresses):
+        raise UnsafeURLError(f"non-public host {host}")
+    return addresses[0]
+
+
+class _PinnedSyncBackend(SyncBackend):
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        return super().connect_tcp(
+            _validated_ip(host, port), port,
+            timeout=timeout, local_address=local_address, socket_options=socket_options,
+        )
+
+
+class _PinnedAsyncBackend(AnyIOBackend):
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        return await super().connect_tcp(
+            _validated_ip(host, port), port,
+            timeout=timeout, local_address=local_address, socket_options=socket_options,
+        )
+
+
+def _pinned_sync_transport(**kwargs) -> httpx.HTTPTransport:
+    transport = httpx.HTTPTransport(**kwargs)
+    transport._pool._network_backend = _PinnedSyncBackend()
+    return transport
+
+
+def pinned_async_transport(**kwargs) -> httpx.AsyncHTTPTransport:
+    """An httpx async transport that pins connections to validated public IPs.
+    Used by the crawler's AsyncClient."""
+    transport = httpx.AsyncHTTPTransport(**kwargs)
+    transport._pool._network_backend = _PinnedAsyncBackend()
+    return transport
+
+
 def url_is_allowed(url: str) -> bool:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -66,7 +119,7 @@ def safe_get(url: str, *, headers: dict | None = None, timeout: float = 30.0) ->
     host; propagates ``httpx.HTTPError`` for transport failures.
     """
     current = url
-    with httpx.Client(follow_redirects=False, timeout=timeout) as client:
+    with httpx.Client(follow_redirects=False, timeout=timeout, transport=_pinned_sync_transport()) as client:
         for _ in range(MAX_REDIRECTS + 1):
             if not url_is_allowed(current):
                 raise UnsafeURLError(current)
