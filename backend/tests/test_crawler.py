@@ -176,9 +176,10 @@ def test_crawler_refuses_redirect_to_internal_host(monkeypatch, make_user, make_
 
 def test_crawl_job_api_requires_auth_and_validates(make_user):
     headers, _, _ = make_user()
-    bad = client.post(
-        "/api/crawler/jobs",
-        json={"seed_urls": ["ftp://nope.example"]},
-        headers=headers,
-    )
+    # Crawler is a paid feature: a free account is blocked before validation.
+    free = client.post("/api/crawler/jobs", json={"seed_urls": ["https://example.com"]}, headers=headers)
+    assert free.status_code == 403
+
+    client.post("/api/billing/dev/set-plan", json={"plan": "pro"}, headers=headers)
+    bad = client.post("/api/crawler/jobs", json={"seed_urls": ["ftp://nope.example"]}, headers=headers)
     assert bad.status_code == 400

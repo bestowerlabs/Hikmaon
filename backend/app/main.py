@@ -12,6 +12,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from app.auth import AuthError, AuthService
+from app.billing import BillingError, BillingService, plan_catalog
 from app.hikmalayer import HikmalayerClient
 from app.integrations.oauth import OAuthManager, ProviderNotConfigured
 from app.integrations.providers import provider_status
@@ -19,11 +20,16 @@ from app.integrations.sync import MediaSyncService
 from app.integrations.webhooks import WebhookError, WebhookService
 from app.models import (
     AnalyzeRequest,
+    ApiKeyCreate,
     CertificateVerifyRequest,
+    CheckoutRequest,
     ConnectorAccountCreate,
     ConnectorIngestEvent,
     CrawlJobCreate,
     IncidentDecision,
+    LicenseActivate,
+    LicenseIssue,
+    PlanSet,
     RegistrationCreate,
     TakedownStatusUpdate,
     TokenRefresh,
@@ -59,6 +65,7 @@ DATA_DIR: Path | None = Path(_data_dir_env) if _data_dir_env else None
 
 store = InMemoryStore.load(DATA_DIR)
 auth_service = AuthService(store, data_dir=DATA_DIR)
+billing_service = BillingService(store, key_path=(DATA_DIR / "license_key.hex") if DATA_DIR else None)
 chain_client = HikmalayerClient(dev_ledger=store.blockchain_records)
 certificate_service = CertificateService(store, key_path=(DATA_DIR / "signing_key.hex") if DATA_DIR else None)
 
@@ -114,7 +121,17 @@ class NotifyRequest(BaseModel):
 # ----------------------------------------------------------- authentication
 
 
-def current_user(authorization: str | None = Header(default=None)) -> UserAccount:
+def current_user(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> UserAccount:
+    # Programmatic clients authenticate with an API key; interactive clients
+    # with a JWT bearer token.
+    if x_api_key:
+        user = billing_service.resolve_api_key(x_api_key)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        return user
     try:
         return auth_service.authenticate(authorization)
     except AuthError as exc:
@@ -123,6 +140,13 @@ def current_user(authorization: str | None = Header(default=None)) -> UserAccoun
 
 def _is_admin(user: UserAccount) -> bool:
     return user.role == "admin"
+
+
+def _bill(call):
+    try:
+        return call()
+    except BillingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @app.post("/api/auth/register", status_code=201)
@@ -161,6 +185,68 @@ def auth_me(user: UserAccount = Depends(current_user)) -> dict:
     return user.model_dump(exclude={"password_hash", "signing_key_ciphertext"})
 
 
+# ------------------------------------------------------------------- billing
+
+
+@app.get("/api/billing/plans")
+def billing_plans() -> list[dict]:
+    return plan_catalog()
+
+
+@app.get("/api/billing/me")
+def billing_me(user: UserAccount = Depends(current_user)) -> dict:
+    return billing_service.account_summary(user)
+
+
+@app.post("/api/billing/checkout")
+def billing_checkout(payload: CheckoutRequest, user: UserAccount = Depends(current_user)) -> dict:
+    return _bill(lambda: billing_service.create_checkout(user, payload.plan))
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request) -> dict:
+    body = await request.body()
+    return _bill(lambda: billing_service.handle_stripe_webhook(body, request.headers.get("stripe-signature")))
+
+
+@app.post("/api/billing/license/activate")
+def billing_license_activate(payload: LicenseActivate, user: UserAccount = Depends(current_user)) -> dict:
+    return _bill(lambda: billing_service.activate_license(user, payload.license))
+
+
+@app.post("/api/billing/license/issue")
+def billing_license_issue(payload: LicenseIssue, user: UserAccount = Depends(current_user)) -> dict:
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return {"license": billing_service.issue_license(payload.email, payload.seats, payload.days)}
+
+
+@app.post("/api/billing/dev/set-plan")
+def billing_dev_set_plan(payload: PlanSet, user: UserAccount = Depends(current_user)) -> dict:
+    return _bill(lambda: billing_service.dev_set_plan(user, payload.plan, payload.days))
+
+
+# --------------------------------------------------------------------- api keys
+
+
+@app.post("/api/apikeys", status_code=201)
+def create_api_key(payload: ApiKeyCreate, user: UserAccount = Depends(current_user)) -> dict:
+    token, record = _bill(lambda: billing_service.mint_api_key(user, payload.name))
+    return {"api_key": token, "note": "Store this now — it is not shown again.", **record}
+
+
+@app.get("/api/apikeys")
+def list_api_keys(user: UserAccount = Depends(current_user)) -> list[dict]:
+    return billing_service.list_api_keys(user)
+
+
+@app.delete("/api/apikeys/{key_id}")
+def revoke_api_key(key_id: str, user: UserAccount = Depends(current_user)) -> dict:
+    if not billing_service.revoke_api_key(user, key_id):
+        raise HTTPException(status_code=404, detail="API key not found")
+    return {"revoked": True, "key_id": key_id}
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "chain_mode": chain_client.chain_mode}
@@ -171,6 +257,7 @@ def health() -> dict[str, str]:
 
 @app.post("/api/registrations")
 def register(payload: RegistrationCreate, user: UserAccount = Depends(current_user)) -> dict:
+    _bill(lambda: billing_service.require_registration_slot(user))
     payload.owner_id = user.user_id
     # Advanced callers may register under their own key with an explicit
     # signature; otherwise the account key signs automatically.
@@ -323,6 +410,7 @@ async def webhook_event(provider: str, request: Request) -> dict:
 
 @app.post("/api/crawler/jobs", status_code=201)
 async def create_crawl_job(payload: CrawlJobCreate, user: UserAccount = Depends(current_user)) -> dict:
+    _bill(lambda: billing_service.require_feature(user, "crawler"))
     try:
         job = crawler_service.create_job(payload, owner_user_id=user.user_id)
     except ValueError as exc:
@@ -372,6 +460,7 @@ def index_media(payload: IndexRequest, user: UserAccount = Depends(current_user)
 
 @app.post("/api/analyze")
 def analyze(payload: AnalyzeRequest, user: UserAccount = Depends(current_user)) -> dict:
+    _bill(lambda: billing_service.check_and_count_analysis(user))
     suspicious_media_id = f"sus_{uuid.uuid4().hex[:12]}"
     report = ai_service.analyze(suspicious_media_id, payload.content_b64)
     if len(analysis_cache) >= ANALYSIS_CACHE_LIMIT:
@@ -382,6 +471,7 @@ def analyze(payload: AnalyzeRequest, user: UserAccount = Depends(current_user)) 
 
 @app.post("/api/realtime/detect")
 def run_realtime_detection(payload: AnalyzeRequest, user: UserAccount = Depends(current_user)) -> dict:
+    _bill(lambda: billing_service.check_and_count_analysis(user))
     return automation_pipeline.run_detection_cycle(payload.media_type, payload.filename, payload.content_b64)
 
 

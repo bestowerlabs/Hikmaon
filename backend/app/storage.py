@@ -43,6 +43,8 @@ class InMemoryStore:
     users: dict[str, UserAccount] = field(default_factory=dict)
     refresh_tokens: dict[str, dict] = field(default_factory=dict)
     crawl_jobs: dict[str, CrawlJob] = field(default_factory=dict)
+    api_keys: dict[str, dict] = field(default_factory=dict)
+    usage: dict[str, dict] = field(default_factory=dict)
     data_dir: Path | None = None
 
     def persist(self) -> None:
@@ -62,6 +64,8 @@ class InMemoryStore:
             "users": {k: v.model_dump(mode="json") for k, v in self.users.items()},
             "refresh_tokens": self.refresh_tokens,
             "crawl_jobs": {k: v.model_dump(mode="json") for k, v in self.crawl_jobs.items()},
+            "api_keys": self.api_keys,
+            "usage": self.usage,
         }
         target = self.data_dir / "hikmaon_store.json"
         fd, tmp_path = tempfile.mkstemp(dir=self.data_dir, suffix=".tmp")
@@ -95,4 +99,6 @@ class InMemoryStore:
         store.users = {k: UserAccount(**v) for k, v in raw.get("users", {}).items()}
         store.refresh_tokens = raw.get("refresh_tokens", {})
         store.crawl_jobs = {k: CrawlJob(**v) for k, v in raw.get("crawl_jobs", {}).items()}
+        store.api_keys = raw.get("api_keys", {})
+        store.usage = raw.get("usage", {})
         return store

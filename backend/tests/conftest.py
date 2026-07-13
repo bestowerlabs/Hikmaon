@@ -10,6 +10,7 @@ from PIL import Image
 
 # Isolate persistence and thresholds before app.main is imported by any test.
 os.environ["HIKMAON_DATA_DIR"] = tempfile.mkdtemp(prefix="hikmaon_test_")
+os.environ["HIKMAON_BILLING_DEV"] = "1"  # allow manual plan changes in tests
 
 
 def photo_like(seed: int, size: int = 256, noise: float = 0.008) -> Image.Image:
