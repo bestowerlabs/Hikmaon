@@ -79,6 +79,11 @@
         <div id="authSession" style="display:none;">
           <p><strong id="whoami"></strong></p>
           <p class="muted">Ownership key: <code id="ownerKey"></code></p>
+          <p class="muted">Plan: <strong id="planName">…</strong> · <span id="planUsage"></span></p>
+          <div class="row" style="display:flex; gap:0.5rem;">
+            <button onclick="upgradePro()">Upgrade to Pro</button>
+            <button class="secondary" onclick="createApiKey()">New API Key</button>
+          </div>
           <button class="secondary" onclick="authLogout()">Log Out</button>
         </div>
       </section>

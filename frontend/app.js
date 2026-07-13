@@ -32,7 +32,36 @@ function updateAuthUI() {
   if (user) {
     document.getElementById('whoami').textContent = `${user.display_name} <${user.email}>`;
     document.getElementById('ownerKey').textContent = user.owner_public_key.slice(0, 24) + '…';
+    loadBilling();
   }
+}
+
+async function loadBilling() {
+  try {
+    const b = await get('/api/billing/me');
+    document.getElementById('planName').textContent = b.plan;
+    document.getElementById('planUsage').textContent =
+      `${b.usage.analyses_used}/${b.usage.analyses_limit} analyses this month`;
+  } catch (err) { /* not logged in yet */ }
+}
+
+async function upgradePro() {
+  try {
+    // Real deployments open Stripe Checkout; without a processor configured,
+    // the dev endpoint activates Pro so the flow is usable.
+    const checkout = await request('/api/billing/checkout', { plan: 'pro' }).catch((e) => ({ error: e.message }));
+    if (checkout && checkout.checkout_url) { window.open(checkout.checkout_url, '_blank'); return; }
+    await request('/api/billing/dev/set-plan', { plan: 'pro' });
+    output({ stage: 'upgraded_to_pro (dev)' });
+    loadBilling();
+  } catch (err) { output({ error: err.message }); }
+}
+
+async function createApiKey() {
+  try {
+    const data = await request('/api/apikeys', { name: 'dashboard' });
+    output({ stage: 'api_key_created', ...data });
+  } catch (err) { output({ error: err.message }); }
 }
 
 function output(data) {

@@ -39,6 +39,12 @@ or pin state-mutating routes to one instance.
 |---|---|---|
 | `HIKMAON_JWT_SECRET` | auto-generated | HMAC secret for access tokens. **Set from a secrets manager in production** |
 | `HIKMAON_BOOTSTRAP_ADMIN` | *(unset)* | Set to `1` only while creating the first admin account, then unset. Without it, all accounts are scoped `owner` (no global visibility) — safe default for public deployments |
+| `HIKMAON_LICENSE_KEY` | auto-generated | Hex Ed25519 seed for signing enterprise licenses. **Set from a secrets manager and back it up** — activated licenses verify against it |
+| `HIKMAON_STRIPE_KEY` | *(unset)* | Stripe secret key. Enables `/api/billing/checkout` (Pro subscriptions) |
+| `HIKMAON_STRIPE_PRICE_PRO` | *(unset)* | Stripe Price id for the Pro plan |
+| `HIKMAON_STRIPE_WEBHOOK_SECRET` | *(unset)* | Stripe webhook signing secret; enables `/api/billing/webhook` subscription lifecycle |
+| `HIKMAON_PUBLIC_URL` | `http://localhost:8000` | Public base URL for Stripe checkout success/cancel redirects |
+| `HIKMAON_BILLING_DEV` | *(unset)* | Set to `1` ONLY in dev/test to allow `/api/billing/dev/set-plan` (manual plan changes without a processor). **Never set in production** |
 | `HIKMAON_FFMPEG` | auto-detected | ffmpeg binary path (falls back to PATH, then the `imageio-ffmpeg` bundled binary) for video/audio fingerprinting |
 | `HIKMAON_CRAWLER_SEEDS` | *(unset)* | Comma-separated seed URLs for the autonomous crawl schedule |
 | `HIKMAON_CRAWLER_INTERVAL_MINUTES` | `0` (off) | Re-crawl the seeds on this interval |
@@ -205,6 +211,20 @@ is fingerprinted, indexed as a public sighting, and matched against all
 registrations — matches open incidents through the standard consent
 workflow. For continuous autonomous monitoring set `HIKMAON_CRAWLER_SEEDS`
 and `HIKMAON_CRAWLER_INTERVAL_MINUTES`.
+
+## 4.6 Billing: subscriptions, licensing, and API usage
+
+Plan tiers gate features and monthly usage (defined in `app/billing.py`):
+
+| Plan | Price | Monthly analyses | Registrations | API keys | Crawler |
+|---|---|---|---|---|---|
+| free | $0 | 100 | 25 | 0 | no |
+| pro | $49/mo | 5,000 | 1,000 | 3 | yes |
+| enterprise | licensed | 1,000,000 | 1,000,000 | 50 | yes |
+
+- **Subscriptions (Stripe):** set `HIKMAON_STRIPE_KEY` + `HIKMAON_STRIPE_PRICE_PRO`; `POST /api/billing/checkout` returns a Checkout URL. Point a Stripe webhook at `POST /api/billing/webhook` with `HIKMAON_STRIPE_WEBHOOK_SECRET` set — `checkout.session.completed` / `customer.subscription.*` events flip the account's plan automatically.
+- **Enterprise licensing:** an admin calls `POST /api/billing/license/issue {email, seats, days}` to mint an Ed25519-signed license token; the customer activates it with `POST /api/billing/license/activate {license}` (verified offline against `HIKMAON_LICENSE_KEY`, bound to their email, expiry-checked). No processor needed.
+- **API usage:** paid accounts mint keys at `POST /api/apikeys` (shown once, stored hashed). Requests authenticate with `X-API-Key: hik_live_…` instead of a bearer token. Every analysis is metered; `GET /api/billing/me` reports plan, usage, and limits. Over-quota returns `402`, missing-feature returns `403`.
 
 ## 5. Production checklist
 

@@ -227,6 +227,34 @@ class UserAccount(BaseModel):
     signing_key_ciphertext: str
     role: Literal["admin", "owner"] = "owner"
     created_at: datetime
+    # Billing
+    plan: Literal["free", "pro", "enterprise"] = "free"
+    subscription_status: Literal["none", "active", "canceled", "past_due"] = "none"
+    current_period_end: datetime | None = None
+    stripe_customer_id: str | None = None
+
+
+class ApiKeyCreate(BaseModel):
+    name: str = "default"
+
+
+class CheckoutRequest(BaseModel):
+    plan: Literal["pro"]
+
+
+class LicenseIssue(BaseModel):
+    email: str
+    seats: int = 5
+    days: int = 365
+
+
+class LicenseActivate(BaseModel):
+    license: str
+
+
+class PlanSet(BaseModel):
+    plan: Literal["free", "pro", "enterprise"]
+    days: int = 30
 
 
 class UserRegister(BaseModel):

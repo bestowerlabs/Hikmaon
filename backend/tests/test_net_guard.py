@@ -81,3 +81,37 @@ def test_safe_get_async_blocks_internal_redirect():
                 await net_guard.safe_get_async(client, "https://public.example/x", url_validator=validator)
 
     asyncio.new_event_loop().run_until_complete(run())
+
+
+def test_pinned_transport_blocks_internal_ip_at_connect():
+    """DNS-rebinding defense: even bypassing url_is_allowed, the pinned
+    transport refuses to open a socket to a non-public address."""
+    import http.server
+    import socketserver
+    import threading
+
+    class _H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"INTERNAL")
+
+        def log_message(self, *a):
+            pass
+
+    server = socketserver.TCPServer(("127.0.0.1", 0), _H)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with httpx.Client(transport=net_guard._pinned_sync_transport(), timeout=5) as client:
+            with pytest.raises(Exception):  # UnsafeURLError bubbles up as a connect failure
+                client.get(f"http://127.0.0.1:{port}/")
+    finally:
+        server.shutdown()
+
+
+def test_validated_ip_rejects_loopback_and_allows_via_getaddrinfo():
+    with pytest.raises(net_guard.UnsafeURLError):
+        net_guard._validated_ip("localhost", 80)
+    with pytest.raises(net_guard.UnsafeURLError):
+        net_guard._validated_ip("127.0.0.1", 80)
