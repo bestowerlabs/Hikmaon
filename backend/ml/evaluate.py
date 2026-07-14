@@ -80,10 +80,31 @@ def main() -> None:
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=4)
     logits, labels, generators = collect_scores(model, loader, device)
 
+    n_real = int((labels == 0).sum())
+    n_fake = int((labels == 1).sum())
+    if n_real == 0 or n_fake == 0:
+        missing = "real" if n_real == 0 else "fake"
+        print(json.dumps({
+            "split": args.split,
+            "n": len(labels),
+            "n_real": n_real,
+            "n_fake": n_fake,
+            "auc": None,
+            "error": (
+                f"Cannot evaluate: the '{args.split}' split has no {missing} samples "
+                f"({n_real} real / {n_fake} fake). AUC compares real vs fake, so it needs "
+                "BOTH classes. Rebuild the manifest with real AND fake data present in this split "
+                "(see ml.make_manifest's per-split balance report)."
+            ),
+        }, indent=2))
+        return
+
     eer, threshold = equal_error_rate(labels, logits)
     report: dict = {
         "split": args.split,
         "n": len(labels),
+        "n_real": n_real,
+        "n_fake": n_fake,
         "auc": round(binary_auc(labels, logits), 4),
         "eer": round(eer, 4),
         "eer_threshold_logit": round(threshold, 4),

@@ -131,6 +131,29 @@ def _summarize(rows: list[dict]) -> str:
     total = len(rows)
     fakes = sum(r["label"] for r in rows)
     lines.append(f"\ntotal {total} rows: {total - fakes} real / {fakes} fake")
+
+    # Class balance per split. A split with only one class makes training or
+    # AUC evaluation impossible (AUC needs BOTH real and fake), so surface it
+    # loudly here instead of after hours of training.
+    lines.append("")
+    lines.append(f"{'split':<10}{'real':>8}{'fake':>8}")
+    problems = []
+    for split in ("train", "val", "test"):
+        real = sum(1 for r in rows if r["split"] == split and r["label"] == 0)
+        fake = sum(1 for r in rows if r["split"] == split and r["label"] == 1)
+        lines.append(f"{split:<10}{real:>8}{fake:>8}")
+        if real == 0 or fake == 0:
+            problems.append((split, real, fake))
+    if problems:
+        lines.append("")
+        lines.append("=" * 62)
+        for split, real, fake in problems:
+            missing = "REAL" if real == 0 else "FAKE"
+            lines.append(f"  WARNING: '{split}' split has {real} real / {fake} fake — no {missing} samples.")
+        lines.append("  Training/AUC needs BOTH classes. Add the missing data and rebuild:")
+        lines.append("  - real media goes under --real DIR (e.g. FaceForensics++ original_sequences,")
+        lines.append("    Celeb-DF Celeb-real / YouTube-real). Extract frames with ml.prepare_dataset first.")
+        lines.append("=" * 62)
     return "\n".join(lines)
 
 

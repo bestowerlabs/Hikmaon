@@ -206,8 +206,17 @@ kind (neuraltextures) completely out of training** so we can later test on a fak
 type the model never saw; save the checklist to `/data/manifest.csv`."
 
 **What you'll see:** a table showing how many pictures went to train/val/test per
-category, then `wrote /data/manifest.csv`. If it complains "No images found,"
-double-check the folder paths.
+category, a **per-split real/fake balance table**, then `wrote /data/manifest.csv`.
+
+> **STOP and read the balance table.** Every split (train, val, test) must show
+> **both** a real count *and* a fake count greater than zero. If you see a big
+> `WARNING: 'test' split has 0 real / 408 fake`, your dataset is missing the
+> **real** half — the model cannot learn or be scored (the quality number "AUC"
+> will come out as `NaN`, meaning "undefined," because you can't measure
+> "real vs fake" with no real examples). Fix it by adding real videos
+> (FaceForensics++ `original_sequences`, Celeb-DF `Celeb-real` / `YouTube-real`),
+> re-running `ml.prepare_dataset` on them, and rebuilding the manifest — **before**
+> you spend hours training.
 
 ### 4b. Start training (hours — walk away)
 
@@ -332,6 +341,7 @@ HIKMAON_MODEL_PATH=hikmaonnet.onnx uvicorn app.main:app
 | `No images found` (manifest) | Frames weren't extracted there | Re-run Stage 3 for that folder; check `--out` path matches |
 | `CUDA out of memory` | GPU too small for the batch | Add `--batch-size 32` (or `16`) to the train command |
 | `val_auc` stuck near 0.5 | Model isn't learning | Check real vs fake folders aren't swapped; ensure both have frames |
+| `"auc": NaN` in evaluate | A split has only ONE class (e.g. all fake, no real) | Add real data under `--real`, rebuild manifest; check the balance table shows real+fake in every split |
 | held-out generator AUC is low | Model doesn't generalize | Add more variety of fake types and re-train |
 
 If you get stuck, save the exact command you ran and the full error message —
