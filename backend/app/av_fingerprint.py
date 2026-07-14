@@ -117,6 +117,41 @@ def extract_frame_hashes(media_path: str, fps: float = VIDEO_FPS, max_frames: in
         return hashes
 
 
+def sample_video_frames(raw_bytes: bytes, fps: float = 1.0, max_frames: int = 16) -> list[Image.Image]:
+    """Decode up to ``max_frames`` RGB frames from video bytes (for neural
+    inference). Returns [] if the bytes are not decodable video."""
+    if ffmpeg_exe() is None:
+        return []
+    with tempfile.NamedTemporaryFile(prefix="hikmaon_nn_", delete=False) as handle:
+        handle.write(raw_bytes)
+        media_path = handle.name
+    try:
+        with tempfile.TemporaryDirectory(prefix="hikmaon_nnframes_") as frame_dir:
+            try:
+                result = subprocess.run(
+                    [
+                        ffmpeg_exe(), "-hide_banner", "-loglevel", "error",
+                        "-i", media_path,
+                        "-vf", f"fps={fps}",
+                        "-frames:v", str(max_frames),
+                        os.path.join(frame_dir, "f_%05d.png"),
+                    ],
+                    capture_output=True,
+                    timeout=180,
+                )
+            except (subprocess.TimeoutExpired, OSError):
+                return []
+            if result.returncode != 0:
+                return []
+            frames = []
+            for frame_file in sorted(Path(frame_dir).glob("f_*.png")):
+                with Image.open(frame_file) as frame:
+                    frames.append(frame.convert("RGB").copy())
+            return frames
+    finally:
+        os.unlink(media_path)
+
+
 def extract_audio_pcm(media_path: str, sample_rate: int = AUDIO_SR) -> np.ndarray | None:
     """Decode any audio stream to mono PCM float32 in [-1, 1]."""
     raw = _run_ffmpeg(

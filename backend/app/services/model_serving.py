@@ -59,17 +59,44 @@ class DeepfakeModelServer:
             ),
         }
 
+    def _preprocess(self, image: Image.Image) -> np.ndarray:
+        image = image.convert("RGB").resize((INPUT_SIZE, INPUT_SIZE), Image.BILINEAR)
+        array = np.asarray(image, dtype=np.float32) / 255.0
+        return ((array - IMAGENET_MEAN) / IMAGENET_STD).transpose(2, 0, 1)
+
+    def _infer_one(self, chw: np.ndarray) -> float:
+        # HikmaonNet's FFT branch exports with a fixed batch dim, so the model
+        # is served one frame at a time.
+        batch = np.ascontiguousarray(chw[None], dtype=np.float32)
+        return float(self.session.run(None, {"image": batch})[0].reshape(-1)[0])
+
+    def _score_image(self, image: Image.Image) -> float:
+        """Score one image with horizontal-flip test-time augmentation."""
+        chw = self._preprocess(image)
+        return (self._infer_one(chw) + self._infer_one(np.ascontiguousarray(chw[:, :, ::-1]))) / 2.0
+
     def predict_probability(self, raw_bytes: bytes) -> float | None:
-        """Calibrated fake-probability for an image, or None if unavailable."""
+        """Calibrated fake-probability for an image or video, or None if the
+        model is not deployed / the media is not decodable.
+
+        Video: frames are sampled and scored; the clip probability is the 80th
+        percentile of frame scores — deepfakes typically manipulate only part
+        of a clip, so a robust high quantile beats the mean without chasing a
+        single outlier frame.
+        """
         if not self.available:
             return None
         try:
-            image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            image = Image.open(io.BytesIO(raw_bytes))
+            image.load()
+            return self._score_image(image)
         except Exception:
+            pass  # not a still image — try video
+
+        from app.av_fingerprint import sample_video_frames
+
+        frames = sample_video_frames(raw_bytes)
+        if not frames:
             return None
-        image = image.resize((INPUT_SIZE, INPUT_SIZE), Image.BILINEAR)
-        array = np.asarray(image, dtype=np.float32) / 255.0
-        array = (array - IMAGENET_MEAN) / IMAGENET_STD
-        tensor = array.transpose(2, 0, 1)[None]
-        probability = self.session.run(None, {"image": tensor})[0]
-        return float(probability.reshape(-1)[0])
+        scores = [self._score_image(frame) for frame in frames]
+        return float(np.quantile(scores, 0.8))

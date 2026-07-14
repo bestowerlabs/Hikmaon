@@ -16,6 +16,7 @@ import hashlib
 
 import httpx
 
+from app import net_guard
 from app.integrations.oauth import OAuthManager
 from app.models import ConnectorAccount, ConnectorIngestEvent
 from app.storage import InMemoryStore
@@ -238,8 +239,8 @@ class MediaSyncService:
     def _download(self, url: str, token: str | None) -> bytes | None:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
-            response = httpx.get(url, headers=headers, follow_redirects=True, timeout=30.0)
+            response = net_guard.safe_get(url, headers=headers)
             response.raise_for_status()
             return response.content
-        except httpx.HTTPError:
+        except (httpx.HTTPError, net_guard.UnsafeURLError):
             return None

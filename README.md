@@ -45,8 +45,29 @@ cd backend && PYTHONPATH=. pytest
 
 ## Training HikmaonNet (your GPU team)
 
+> **New to this? Read [`docs/HOW_TO_TRAIN_THE_MODEL.md`](docs/HOW_TO_TRAIN_THE_MODEL.md)** —
+> a complete, plain-language, step-by-step guide written so anyone can train the
+> model (covers getting FaceForensics++, preparing data, training, and deploying).
+
 ```bash
 pip install -r ml/requirements.txt
+
+# 0a) Turn downloaded videos into training frames (once per folder).
+python -m ml.prepare_dataset --videos /data/ffpp/original_sequences --out /data/frames/real
+python -m ml.prepare_dataset --videos /data/ffpp/manipulated_sequences/Deepfakes --out /data/frames/deepfakes
+
+# 0b) Build the manifest from your frame folders (generates /data/manifest.csv).
+#    Frames of one video never leak across splits; --holdout keeps a generator
+#    out of training so its test AUC measures true generalization.
+python -m ml.make_manifest \
+    --real /data/ffpp/real --real /data/celebdf/real \
+    --fake deepfakes=/data/ffpp/deepfakes \
+    --fake face2face=/data/ffpp/face2face \
+    --fake celebdf=/data/celebdf/fake \
+    --holdout celebdf \
+    --out /data/manifest.csv
+
+# 1-3) Train, evaluate + calibrate, export
 python -m ml.train    --manifest /data/manifest.csv --out runs/v1 --epochs 30
 python -m ml.evaluate --manifest /data/manifest.csv --checkpoint runs/v1/best.pt --split test --fit-temperature
 python -m ml.export   --checkpoint runs/v1/best.pt --out hikmaonnet.onnx
@@ -57,7 +78,8 @@ Manifest format, dataset guidance (FaceForensics++, DFDC, Celeb-DF, diffusion se
 
 ## Documentation
 
-- **`docs/DEPLOYMENT.md`** — full deployment guide: server, model training→serving, Hikmalayer connection, per-platform OAuth activation, production checklist.
+- **`docs/HOW_TO_TRAIN_THE_MODEL.md`** — beginner-friendly, step-by-step training guide (data → prepare → train → deploy), written for non-programmers.
+- **`docs/DEPLOYMENT.md`** — full deployment guide: server, accounts, billing, AV matching, crawler, model training→serving, Hikmalayer connection, per-platform OAuth activation, production checklist.
 - `docs/architecture.md` — technical target architecture.
 - `docs/deepfake_detection_assessment.md` — capability assessment and roadmap.
 - `docs/development_stages.md` — stage-by-stage build log.

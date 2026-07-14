@@ -142,11 +142,44 @@ def test_ssrf_guard_blocks_private_addresses():
     assert crawler_module._url_allowed("ftp://example.com/x") is False
 
 
+def test_crawler_refuses_redirect_to_internal_host(monkeypatch, make_user, make_photo, to_bytes):
+    """A crawled public page that 302-redirects to an internal host must not
+    be followed (SSRF redirect-bypass regression)."""
+    headers, user, _ = make_user()
+
+    internal_hit = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if host == "127.0.0.1":
+            internal_hit["count"] += 1
+            return httpx.Response(200, content=b"INTERNAL-SECRET")
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n", headers={"content-type": "text/plain"})
+        # Public page redirects an image fetch to the metadata/internal host.
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/latest/meta-data"})
+
+    _patch_network(monkeypatch, httpx.MockTransport(handler))
+    # Only the fake public domain is "public"; 127.0.0.1 must be judged internal.
+    monkeypatch.setattr(crawler_module, "_host_is_public", lambda host: host == "fakesite.example")
+
+    job = crawler_service.create_job(
+        CrawlJobCreate(seed_urls=["https://fakesite.example/"], max_pages=5, max_depth=1),
+        owner_user_id=user["user_id"],
+    )
+    finished = _run(crawler_service.run_job(job))
+
+    assert finished.status == "completed"
+    assert internal_hit["count"] == 0  # the crawler never fetched the internal host
+    assert finished.media_indexed == 0
+
+
 def test_crawl_job_api_requires_auth_and_validates(make_user):
     headers, _, _ = make_user()
-    bad = client.post(
-        "/api/crawler/jobs",
-        json={"seed_urls": ["ftp://nope.example"]},
-        headers=headers,
-    )
+    # Crawler is a paid feature: a free account is blocked before validation.
+    free = client.post("/api/crawler/jobs", json={"seed_urls": ["https://example.com"]}, headers=headers)
+    assert free.status_code == 403
+
+    client.post("/api/billing/dev/set-plan", json={"plan": "pro"}, headers=headers)
+    bad = client.post("/api/crawler/jobs", json={"seed_urls": ["ftp://nope.example"]}, headers=headers)
     assert bad.status_code == 400
