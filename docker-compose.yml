@@ -1,0 +1,13 @@
+
+services:
+  hikmoan-backend:
+    build: ./backend
+    container_name: hikmoan-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./backend/data:/app/backend/data
+      - ./backend/runs:/app/backend/runs
+    environment:
+      - PYTHONUNBUFFERED=1

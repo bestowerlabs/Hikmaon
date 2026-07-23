@@ -251,6 +251,9 @@ def revoke_api_key(key_id: str, user: UserAccount = Depends(current_user)) -> di
 def health() -> dict[str, str]:
     return {"status": "ok", "chain_mode": chain_client.chain_mode}
 
+@app.get("/")
+def index() -> dict:
+    return {"message": "Welcome to the Hikmaon API"}
 
 # ---------------------------------------------------------------- registration
 
