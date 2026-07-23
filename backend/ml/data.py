@@ -69,7 +69,9 @@ def read_manifest(manifest_path: str | Path) -> list[ManifestRow]:
 # Augmentations (PIL-based, dependency-free)
 # --------------------------------------------------------------------------- #
 def _jpeg_cycle(image: Image.Image, rng: random.Random) -> Image.Image:
-    quality = rng.randint(30, 90)
+    # Mild recompression only — heavy JPEG erases the subtle manipulation
+    # artifacts the model must learn, so keep quality high.
+    quality = rng.randint(60, 95)
     buffer = io.BytesIO()
     image.save(buffer, "JPEG", quality=quality)
     buffer.seek(0)
@@ -77,7 +79,7 @@ def _jpeg_cycle(image: Image.Image, rng: random.Random) -> Image.Image:
 
 
 def _resize_cycle(image: Image.Image, rng: random.Random) -> Image.Image:
-    scale = rng.uniform(0.5, 1.0)
+    scale = rng.uniform(0.75, 1.0)
     small = image.resize(
         (max(int(image.width * scale), 32), max(int(image.height * scale), 32)),
         Image.BILINEAR,
@@ -86,18 +88,18 @@ def _resize_cycle(image: Image.Image, rng: random.Random) -> Image.Image:
 
 
 def _color_jitter(image: Image.Image, rng: random.Random) -> Image.Image:
-    image = ImageEnhance.Brightness(image).enhance(rng.uniform(0.8, 1.2))
-    image = ImageEnhance.Contrast(image).enhance(rng.uniform(0.8, 1.2))
-    return ImageEnhance.Color(image).enhance(rng.uniform(0.8, 1.2))
+    image = ImageEnhance.Brightness(image).enhance(rng.uniform(0.9, 1.1))
+    image = ImageEnhance.Contrast(image).enhance(rng.uniform(0.9, 1.1))
+    return ImageEnhance.Color(image).enhance(rng.uniform(0.9, 1.1))
 
 
 def _blur(image: Image.Image, rng: random.Random) -> Image.Image:
-    return image.filter(ImageFilter.GaussianBlur(rng.uniform(0.3, 1.5)))
+    return image.filter(ImageFilter.GaussianBlur(rng.uniform(0.3, 0.8)))
 
 
 def _noise(image: Image.Image, rng: random.Random) -> Image.Image:
     array = np.asarray(image, dtype=np.float32)
-    array += np.random.default_rng(rng.randrange(2**31)).normal(0, rng.uniform(1, 6), array.shape)
+    array += np.random.default_rng(rng.randrange(2**31)).normal(0, rng.uniform(1, 3), array.shape)
     return Image.fromarray(np.clip(array, 0, 255).astype(np.uint8))
 
 
@@ -105,8 +107,9 @@ TRAIN_DEGRADATIONS = (_jpeg_cycle, _resize_cycle, _color_jitter, _blur, _noise)
 
 
 def augment_train(image: Image.Image, rng: random.Random) -> Image.Image:
-    # Random resized crop (0.7-1.0 area) + horizontal flip.
-    area = rng.uniform(0.7, 1.0)
+    # Gentle random resized crop (0.85-1.0 area) + horizontal flip. The crop
+    # stays close to the full frame so faces aren't cut out.
+    area = rng.uniform(0.85, 1.0)
     w = int(image.width * area**0.5)
     h = int(image.height * area**0.5)
     left = rng.randint(0, image.width - w)
@@ -114,10 +117,12 @@ def augment_train(image: Image.Image, rng: random.Random) -> Image.Image:
     image = image.crop((left, top, left + w, top + h))
     if rng.random() < 0.5:
         image = image.transpose(Image.FLIP_LEFT_RIGHT)
-    # Apply 1-3 degradations with 90% probability overall.
-    if rng.random() < 0.9:
-        for op in rng.sample(TRAIN_DEGRADATIONS, k=rng.randint(1, 3)):
-            image = op(image, rng)
+    # Apply at most one mild degradation, half the time. Deepfake cues are
+    # subtle, so light augmentation lets the model find the signal first;
+    # robustness to heavy compression is better added as a later fine-tune.
+    if rng.random() < 0.5:
+        op = rng.choice(TRAIN_DEGRADATIONS)
+        image = op(image, rng)
     return image
 
 

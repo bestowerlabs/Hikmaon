@@ -1,6 +1,7 @@
 # Training environment only (GPU box). The API server does NOT need these —
 # it serves the exported ONNX model with onnxruntime alone.
 torch>=2.4
+timm>=1.0
 numpy>=1.26
 pillow>=10.0
 # Export + verification

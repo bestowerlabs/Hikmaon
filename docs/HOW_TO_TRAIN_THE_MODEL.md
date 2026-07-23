@@ -224,6 +224,15 @@ category, a **per-split real/fake balance table**, then `wrote /data/manifest.cs
 python -m ml.train --manifest /data/manifest.csv --out runs/v1 --epochs 30
 ```
 
+> **The model now starts from a pretrained backbone by default** (it downloads
+> a small ImageNet model the first time — make sure "Internet" is **on** in your
+> Kaggle notebook Settings). This is what lets it actually learn deepfake clues
+> instead of getting stuck at ~0.5 AUC. It's already the default, so the command
+> above is all you need. (Only if you have no internet, add `--backbone none` to
+> use the slower from-scratch network.)
+>
+> If your GPU runs out of memory, add `--batch-size 32`.
+
 **What happens:** the computer looks at all the pictures 30 times over (each pass
 is one "epoch"), gradually learning. After each epoch it prints a line like:
 
@@ -340,7 +349,8 @@ HIKMAON_MODEL_PATH=hikmaonnet.onnx uvicorn app.main:app
 | `No videos found under …` | Wrong folder path | Check the path points at the folder that actually contains the videos |
 | `No images found` (manifest) | Frames weren't extracted there | Re-run Stage 3 for that folder; check `--out` path matches |
 | `CUDA out of memory` | GPU too small for the batch | Add `--batch-size 32` (or `16`) to the train command |
-| `val_auc` stuck near 0.5 | Model isn't learning | Check real vs fake folders aren't swapped; ensure both have frames |
+| `val_auc` stuck near 0.5 | Model isn't learning | Ensure training uses the pretrained backbone (default; needs Internet ON in Kaggle Settings); check real vs fake folders aren't swapped |
+| `train_loss` frozen near 0.69 | Model collapsed (from-scratch, too little signal) | Use the pretrained backbone (default) and Internet ON; try `--lr 1e-4` |
 | `"auc": NaN` in evaluate | A split has only ONE class (e.g. all fake, no real) | Add real data under `--real`, rebuild manifest; check the balance table shows real+fake in every split |
 | held-out generator AUC is low | Model doesn't generalize | Add more variety of fake types and re-train |
 
