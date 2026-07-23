@@ -84,11 +84,36 @@ class Stage(nn.Module):
 
 
 class SpatialBranch(nn.Module):
-    """ConvNeXt-style RGB backbone. dims/depths sized for single-GPU training;
-    scale up dims=(128,256,512,1024) when the team has A100-class hardware."""
+    """RGB backbone. Two modes:
 
-    def __init__(self, out_dim: int, dims=(64, 128, 256, 512), depths=(2, 2, 6, 2)) -> None:
+    - ``backbone=None`` (default): a from-scratch ConvNeXt-style network. Keeps
+      the model self-contained and offline (used by tests).
+    - ``backbone="<timm name>"``: a pretrained ImageNet backbone via ``timm``
+      (e.g. ``tf_efficientnet_b0_ns``, ``convnext_tiny``). **This is strongly
+      recommended for real training** — deepfake artifacts are subtle, and a
+      cold-start network struggles to find them, whereas a pretrained backbone
+      already knows faces/textures and only has to learn the "fake" signal.
+    """
+
+    def __init__(
+        self,
+        out_dim: int,
+        dims=(64, 128, 256, 512),
+        depths=(2, 2, 6, 2),
+        backbone: str | None = None,
+        pretrained: bool = False,
+    ) -> None:
         super().__init__()
+        self.backbone = None
+        if backbone:
+            try:
+                import timm
+            except ImportError as exc:  # pragma: no cover
+                raise ImportError("Pretrained backbones need timm: pip install timm") from exc
+            self.backbone = timm.create_model(backbone, pretrained=pretrained, num_classes=0, global_pool="avg")
+            self.head = nn.Linear(self.backbone.num_features, out_dim)
+            return
+
         self.stem = nn.Sequential(
             nn.Conv2d(3, dims[0], kernel_size=4, stride=4),
             nn.GroupNorm(1, dims[0]),
@@ -102,6 +127,8 @@ class SpatialBranch(nn.Module):
         self.head = nn.Linear(dims[-1], out_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.backbone is not None:
+            return self.head(self.backbone(x))
         x = self.stem(x)
         for stage in self.stages:
             x = stage(x)
@@ -195,9 +222,15 @@ class AttentionFusion(nn.Module):
 # Full model
 # --------------------------------------------------------------------------- #
 class HikmaonNet(nn.Module):
-    def __init__(self, embed_dim: int = 256, dropout: float = 0.3) -> None:
+    def __init__(
+        self,
+        embed_dim: int = 256,
+        dropout: float = 0.3,
+        backbone: str | None = None,
+        pretrained: bool = False,
+    ) -> None:
         super().__init__()
-        self.spatial = SpatialBranch(embed_dim)
+        self.spatial = SpatialBranch(embed_dim, backbone=backbone, pretrained=pretrained)
         self.frequency = FrequencyBranch(embed_dim)
         self.noise = NoiseBranch(embed_dim)
         self.fusion = AttentionFusion(embed_dim)
@@ -222,5 +255,10 @@ class HikmaonNet(nn.Module):
         }
 
 
-def build_model(embed_dim: int = 256, dropout: float = 0.3) -> HikmaonNet:
-    return HikmaonNet(embed_dim=embed_dim, dropout=dropout)
+def build_model(
+    embed_dim: int = 256,
+    dropout: float = 0.3,
+    backbone: str | None = None,
+    pretrained: bool = False,
+) -> HikmaonNet:
+    return HikmaonNet(embed_dim=embed_dim, dropout=dropout, backbone=backbone, pretrained=pretrained)

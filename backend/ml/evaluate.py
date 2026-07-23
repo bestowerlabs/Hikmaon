@@ -73,7 +73,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     state = torch.load(args.checkpoint, map_location=device)
-    model = build_model(embed_dim=state.get("embed_dim", 256)).to(device)
+    model = build_model(embed_dim=state.get("embed_dim", 256), backbone=state.get("backbone")).to(device)
     model.load_state_dict(state["model"])
 
     dataset = DeepfakeDataset(args.manifest, split=args.split, train_augment=False)

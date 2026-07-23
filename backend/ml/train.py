@@ -86,13 +86,33 @@ def train(args: argparse.Namespace) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     train_loader, val_loader = make_loaders(args.manifest, args.batch_size, args.workers)
-    model = build_model(embed_dim=args.embed_dim, dropout=args.dropout).to(device)
+    backbone = None if args.backbone in (None, "none", "") else args.backbone
+    model = build_model(
+        embed_dim=args.embed_dim, dropout=args.dropout, backbone=backbone, pretrained=args.pretrained
+    ).to(device)
+    if backbone:
+        print(f"spatial backbone: {backbone} (pretrained={args.pretrained})")
     if args.resume:
         state = torch.load(args.resume, map_location=device)
         model.load_state_dict(state["model"])
         print(f"resumed from {args.resume}")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.05)
+    # A pretrained backbone is fine-tuned at a fraction of the head's learning
+    # rate so it adapts gently instead of being wiped out.
+    if backbone:
+        backbone_params = list(model.spatial.backbone.parameters())
+        backbone_ids = {id(p) for p in backbone_params}
+        other_params = [p for p in model.parameters() if id(p) not in backbone_ids]
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": backbone_params, "lr_scale": args.backbone_lr_scale},
+                {"params": other_params, "lr_scale": 1.0},
+            ],
+            lr=args.lr,
+            weight_decay=0.05,
+        )
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.05)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
     total_steps = args.epochs * len(train_loader)
     warmup_steps = min(500, total_steps // 20)
@@ -111,7 +131,8 @@ def train(args: argparse.Namespace) -> None:
         for batch in train_loader:
             lr = cosine_lr(step, total_steps, warmup_steps, args.lr)
             for group in optimizer.param_groups:
-                group["lr"] = lr
+                # Each group keeps its relative scale (backbone group < head).
+                group["lr"] = lr * group.get("lr_scale", 1.0)
 
             images = batch["image"].to(device, non_blocking=True)
             labels = batch["label"].to(device, non_blocking=True)
@@ -152,6 +173,7 @@ def train(args: argparse.Namespace) -> None:
                     "model_version": MODEL_VERSION,
                     "embed_dim": args.embed_dim,
                     "dropout": args.dropout,
+                    "backbone": backbone,
                     "val_metrics": metrics,
                 },
                 out_dir / "best.pt",
@@ -171,7 +193,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--embed-dim", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.3)
-    parser.add_argument("--freeze-epochs", type=int, default=0, help="Freeze spatial branch for N epochs")
+    parser.add_argument("--freeze-epochs", type=int, default=1,
+                        help="Freeze the spatial backbone for N epochs so the new branches warm up first")
+    parser.add_argument("--backbone", default="tf_efficientnet_b0_ns",
+                        help="timm backbone for the spatial branch, or 'none' for the from-scratch net "
+                             "(default: pretrained EfficientNet-B0). Needs internet on first run to download weights.")
+    parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True,
+                        help="Load ImageNet-pretrained backbone weights (default on; --no-pretrained to disable)")
+    parser.add_argument("--backbone-lr-scale", type=float, default=0.1,
+                        help="Fine-tune the pretrained backbone at this fraction of the main LR")
     parser.add_argument("--resume", default=None, help="Checkpoint to resume from")
     return parser.parse_args()
 

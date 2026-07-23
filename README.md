@@ -135,7 +135,8 @@ python -m ml.make_manifest \
     --holdout celebdf \
     --out /data/manifest.csv
 
-# 1-3) Train, evaluate + calibrate, export
+# 1-3) Train (pretrained EfficientNet-B0 backbone by default — needs internet
+#       to download weights once), evaluate + calibrate, export
 python -m ml.train    --manifest /data/manifest.csv --out runs/v1 --epochs 30
 python -m ml.evaluate --manifest /data/manifest.csv --checkpoint runs/v1/best.pt --split test --fit-temperature
 python -m ml.export   --checkpoint runs/v1/best.pt --out hikmaonnet.onnx

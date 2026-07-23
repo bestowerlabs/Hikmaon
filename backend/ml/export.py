@@ -32,7 +32,7 @@ def main() -> None:
     args = parser.parse_args()
 
     state = torch.load(args.checkpoint, map_location="cpu")
-    model = build_model(embed_dim=state.get("embed_dim", 256))
+    model = build_model(embed_dim=state.get("embed_dim", 256), backbone=state.get("backbone"))
     model.load_state_dict(state["model"])
     model.eval()
 

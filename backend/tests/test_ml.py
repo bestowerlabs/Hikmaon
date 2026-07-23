@@ -94,3 +94,26 @@ def test_neural_serving_scores_image_and_video(tmp_path):
         )
         p_vid = server.predict_probability(vid.read_bytes())
         assert p_vid is not None and 0.0 <= p_vid <= 1.0
+
+
+def test_pretrained_backbone_path_builds_and_learns():
+    """The timm-backbone spatial branch builds offline (pretrained=False) and
+    can drive its loss down — the recommended real-training configuration."""
+    pytest.importorskip("timm")
+    from ml.model import build_model
+
+    model = build_model(embed_dim=64, backbone="tf_efficientnet_b0_ns", pretrained=False)
+    assert model.spatial.backbone is not None
+
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    x = torch.randn(4, 3, 224, 224)
+    y = torch.tensor([0.0, 1.0, 0.0, 1.0])
+    first = last = None
+    for _ in range(6):
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(model(x)["logit"], y)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        first = first if first is not None else loss.item()
+        last = loss.item()
+    assert last < first
